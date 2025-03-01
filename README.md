@@ -13,6 +13,7 @@ A Blender addon for managing, transferring, and manipulating shape keys (blend s
 
 ### Advanced Operations
 - **Transfer Shape Keys via Surface Deform**: Transfer shape keys between meshes with different topologies using Blender's Surface Deform modifier
+- **Smart Shape Key Filtering**: Automatically skip shape keys that don't meaningfully affect the target mesh
 
 ## Requirements
 - Blender 4.3 or higher
@@ -60,6 +61,8 @@ This feature allows you to transfer shape keys from one mesh to another, even if
 4. Configure the options:
    - **Shape Key Strength**: Adjusts the intensity of the transferred shape keys (default: 1.0)
    - **Clear Existing Shape Keys**: Remove existing shape keys on target before transfer
+   - **Skip Non-Effective Shape Keys**: Only create shape keys that actually deform the target mesh
+   - **Deformation Threshold**: Minimum vertex displacement (in Blender units) required to keep a shape key
 5. Click "OK" to begin the transfer process
 
 The addon will:
@@ -67,12 +70,16 @@ The addon will:
 - Bind it to the source mesh
 - For each shape key on the source:
   - Activate one shape key at maximum value
-  - Create a corresponding shape key on the target
+  - Measure how much the target mesh actually deforms
+  - Skip shape keys that don't produce significant deformation (if enabled)
+  - Create a corresponding shape key on the target for those that do have an effect
   - Name it to match the source shape key
 - Clean up by removing the modifier when finished
 
 ## Tips and Troubleshooting
 
+- **Intelligent Shape Key Filtering**: When transferring shape keys from a full body to clothing, enable "Skip Non-Effective Shape Keys" to automatically filter out irrelevant shape keys (e.g., leg shape keys won't affect a shirt).
+- **Adjusting Threshold**: If too many shape keys are being skipped, try lowering the deformation threshold. If unnecessary shape keys are being created, increase the threshold.
 - **Shape Key Transfer**: The source mesh should completely envelop the target mesh for best results.
 - **Surface Deform Error**: If binding fails, try:
   - Moving the meshes closer together
@@ -93,6 +100,7 @@ The Surface Deform transfer method works best when:
 - 1.0: Initial release
   - Basic copy, cut, paste, save, and load functionality
   - Shape key transfer via Surface Deform
+  - Smart filtering of non-effective shape keys during transfer
 
 ## License
 

@@ -10,6 +10,7 @@ bl_info = {
 
 import bpy
 import json
+import numpy as np
 from bpy.props import FloatProperty, BoolProperty, EnumProperty, PointerProperty
 
 # Global variable to store copied shape key data
@@ -182,6 +183,21 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         default=True
     )
     
+    skip_minimal_effect: BoolProperty(
+        name="Skip Non-Effective Shape Keys",
+        description="Skip shape keys that don't meaningfully deform the target mesh",
+        default=True
+    )
+    
+    deformation_threshold: FloatProperty(
+        name="Deformation Threshold",
+        description="Minimum vertex displacement required to consider a shape key effective (in Blender units)",
+        default=0.001,
+        min=0.0001,
+        max=1.0,
+        precision=4
+    )
+    
     @classmethod
     def poll(cls, context):
         # We need at least two objects selected, both must be meshes
@@ -199,6 +215,28 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
                 return True
                 
         return False
+    
+    def calculate_deformation_amount(self, obj, basis_coords, deformed_coords):
+        """Calculate how much the mesh has deformed from basis to deformed state"""
+        if len(basis_coords) != len(deformed_coords):
+            return 0.0
+            
+        # Calculate max displacement across all vertices
+        max_displacement = 0.0
+        total_displacement = 0.0
+        
+        for i in range(len(basis_coords)):
+            base = basis_coords[i]
+            deformed = deformed_coords[i]
+            
+            # Calculate distance between base and deformed positions
+            displacement = np.linalg.norm(np.array(deformed) - np.array(base))
+            max_displacement = max(max_displacement, displacement)
+            total_displacement += displacement
+            
+        avg_displacement = total_displacement / len(basis_coords) if basis_coords else 0
+        
+        return max_displacement, avg_displacement
     
     def execute(self, context):
         target = context.active_object
@@ -251,13 +289,40 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         # Bind the modifier
         bpy.ops.object.surfacedeform_bind(override, modifier=surface_deform.name)
         
+        # Create a dictionary to store basis vertex coordinates
+        basis_coords = [v.co.copy() for v in target.data.vertices]
+        
         # Transfer each shape key
         transferred_count = 0
+        skipped_count = 0
+        
+        # If there's a shape key, get the basis shape for correct comparison
+        if target.data.shape_keys:
+            basis_key = target.data.shape_keys.key_blocks['Basis']
         
         for key in source.data.shape_keys.key_blocks:
             if key.name != 'Basis':
                 # Set this shape key to maximum value
                 key.value = self.strength
+                
+                # Update the mesh so we can evaluate deformation
+                context.view_layer.update()
+                
+                if self.skip_minimal_effect:
+                    # Get deformed vertex coordinates
+                    deformed_coords = [target.data.shape_keys.key_blocks['Basis'].data[i].co.copy() 
+                                     for i in range(len(target.data.vertices))]
+                    
+                    # Calculate deformation metrics
+                    max_displacement, avg_displacement = self.calculate_deformation_amount(
+                        target, basis_coords, deformed_coords)
+                    
+                    # Skip if below threshold
+                    if max_displacement < self.deformation_threshold:
+                        self.report({'INFO'}, f"Skipping shape key {key.name} (max displacement: {max_displacement:.6f})")
+                        key.value = 0.0
+                        skipped_count += 1
+                        continue
                 
                 # Apply as shape key on target
                 new_key = target.shape_key_add(name=f"temp_{key.name}", from_mix=True)
@@ -282,11 +347,25 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         # Return to original mode
         bpy.ops.object.mode_set(mode=original_mode)
         
-        self.report({'INFO'}, f"Transferred {transferred_count} shape keys from {source.name} to {target.name}")
+        if skipped_count > 0:
+            self.report({'INFO'}, f"Transferred {transferred_count} shape keys from {source.name} to {target.name} (skipped {skipped_count} with minimal effect)")
+        else:
+            self.report({'INFO'}, f"Transferred {transferred_count} shape keys from {source.name} to {target.name}")
+        
         return {'FINISHED'}
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "strength")
+        layout.prop(self, "clear_existing")
+        layout.prop(self, "skip_minimal_effect")
+        
+        # Only show threshold if skip_minimal_effect is enabled
+        if self.skip_minimal_effect:
+            layout.prop(self, "deformation_threshold")
 
 class SHAPEKEY_PT_manager(bpy.types.Panel):
     """Shape Key Manager Panel"""
