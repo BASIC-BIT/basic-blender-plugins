@@ -10,6 +10,7 @@ bl_info = {
 
 import bpy
 import json
+from bpy.props import FloatProperty, BoolProperty, EnumProperty, PointerProperty
 
 # Global variable to store copied shape key data
 copied_shape_keys = {}
@@ -161,6 +162,132 @@ class SHAPEKEY_OT_load(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
+class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
+    """Transfer shape keys from source mesh to target mesh using Surface Deform modifier"""
+    bl_idname = "shapekey.transfer_with_surface_deform"
+    bl_label = "Transfer Shape Keys (Surface Deform)"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    strength: FloatProperty(
+        name="Shape Key Strength",
+        description="Strength to apply when creating shape keys",
+        default=1.0,
+        min=0.0,
+        max=10.0
+    )
+    
+    clear_existing: BoolProperty(
+        name="Clear Existing Shape Keys",
+        description="Remove existing shape keys on target mesh before transfer",
+        default=True
+    )
+    
+    @classmethod
+    def poll(cls, context):
+        # We need at least two objects selected, both must be meshes
+        if len(context.selected_objects) < 2:
+            return False
+        
+        # Active object should be target
+        target = context.active_object
+        if not target or target.type != 'MESH':
+            return False
+            
+        # Check at least one source has shape keys
+        for obj in context.selected_objects:
+            if obj != target and obj.type == 'MESH' and obj.data.shape_keys:
+                return True
+                
+        return False
+    
+    def execute(self, context):
+        target = context.active_object
+        sources = [obj for obj in context.selected_objects if obj != target and obj.type == 'MESH' and obj.data.shape_keys]
+        
+        if not sources:
+            self.report({'ERROR'}, "No valid source objects with shape keys selected")
+            return {'CANCELLED'}
+            
+        source = sources[0]  # Use the first valid source
+        
+        # Clear existing shape keys if needed
+        if self.clear_existing and target.data.shape_keys:
+            # Store original active shape key index
+            original_active_index = target.active_shape_key_index
+            
+            # Remove all shape keys
+            while target.data.shape_keys:
+                target.shape_key_remove(target.data.shape_keys.key_blocks[0])
+        
+        # Make sure target has basis shape key
+        if not target.data.shape_keys:
+            basis = target.shape_key_add(name="Basis")
+            basis.interpolation = 'KEY_LINEAR'
+        
+        # Reset source shape keys to zero
+        stored_values = {}
+        if source.data.shape_keys:
+            for key in source.data.shape_keys.key_blocks:
+                if key.name != 'Basis':
+                    stored_values[key.name] = key.value
+                    key.value = 0.0
+        
+        # Add Surface Deform modifier to target
+        surface_deform = target.modifiers.new(name="SurfaceDeform", type='SURFACE_DEFORM')
+        surface_deform.target = source
+        
+        # Bind the Surface Deform modifier
+        # We need to ensure we're in object mode for this
+        original_mode = context.object.mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # Set the right context for binding
+        override = context.copy()
+        override["object"] = target
+        override["active_object"] = target
+        override["selected_objects"] = [target]
+        override["selected_editable_objects"] = [target]
+        
+        # Bind the modifier
+        bpy.ops.object.surfacedeform_bind(override, modifier=surface_deform.name)
+        
+        # Transfer each shape key
+        transferred_count = 0
+        
+        for key in source.data.shape_keys.key_blocks:
+            if key.name != 'Basis':
+                # Set this shape key to maximum value
+                key.value = self.strength
+                
+                # Apply as shape key on target
+                new_key = target.shape_key_add(name=f"temp_{key.name}", from_mix=True)
+                new_key.interpolation = 'KEY_LINEAR'
+                
+                # Rename to match source
+                new_key.name = key.name
+                
+                # Reset source shape key value
+                key.value = 0.0
+                
+                transferred_count += 1
+        
+        # Restore original shape key values on source
+        for key_name, value in stored_values.items():
+            if key_name in source.data.shape_keys.key_blocks:
+                source.data.shape_keys.key_blocks[key_name].value = value
+        
+        # Remove the Surface Deform modifier
+        target.modifiers.remove(surface_deform)
+        
+        # Return to original mode
+        bpy.ops.object.mode_set(mode=original_mode)
+        
+        self.report({'INFO'}, f"Transferred {transferred_count} shape keys from {source.name} to {target.name}")
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
 class SHAPEKEY_PT_manager(bpy.types.Panel):
     """Shape Key Manager Panel"""
     bl_label = "Shape Key Manager"
@@ -174,30 +301,52 @@ class SHAPEKEY_PT_manager(bpy.types.Panel):
         obj = context.active_object
         
         if obj and obj.type == 'MESH':
+            # Basic shape key operations section
+            box = layout.box()
+            box.label(text="Basic Operations")
+            
             if obj.data.shape_keys:
-                row = layout.row()
+                col = box.column(align=True)
+                row = col.row(align=True)
                 row.operator(SHAPEKEY_OT_copy.bl_idname)
-                
-                row = layout.row()
                 row.operator(SHAPEKEY_OT_cut.bl_idname)
                 
-                row = layout.row()
+                row = col.row()
                 row.operator(SHAPEKEY_OT_paste.bl_idname)
                 
-                layout.separator()
+                col.separator()
                 
-                row = layout.row()
+                row = col.row()
                 row.operator(SHAPEKEY_OT_save.bl_idname)
                 
-                row = layout.row()
+                row = col.row()
                 row.operator(SHAPEKEY_OT_load.bl_idname)
                 
                 # Display number of active shape keys
-                if obj.data.shape_keys:
-                    num_keys = len(obj.data.shape_keys.key_blocks) - 1  # Subtract 1 for the Basis shape
-                    layout.label(text=f"Active Shape Keys: {num_keys}")
+                num_keys = len(obj.data.shape_keys.key_blocks) - 1  # Subtract 1 for the Basis shape
+                col.label(text=f"Active Shape Keys: {num_keys}")
             else:
-                layout.label(text="No Shape Keys on selected object")
+                box.label(text="No Shape Keys on selected object")
+            
+            # Advanced shape key operations section
+            box = layout.box()
+            box.label(text="Advanced Operations")
+            
+            # Transfer shape keys section
+            row = box.row()
+            row.operator(SHAPEKEY_OT_transfer_with_surface_deform.bl_idname)
+            
+            # Help text for transfer
+            if len(context.selected_objects) < 2:
+                box.label(text="Select source then target (active)")
+            else:
+                sources = [o for o in context.selected_objects if o != obj and o.type == 'MESH']
+                if sources:
+                    source_names = ", ".join([s.name for s in sources[:3]])
+                    if len(sources) > 3:
+                        source_names += f" and {len(sources) - 3} more"
+                    box.label(text=f"Source: {source_names}")
+                    box.label(text=f"Target: {obj.name} (active)")
         else:
             layout.label(text="Select a mesh object")
 
@@ -207,6 +356,7 @@ classes = (
     SHAPEKEY_OT_paste,
     SHAPEKEY_OT_save,
     SHAPEKEY_OT_load,
+    SHAPEKEY_OT_transfer_with_surface_deform,
     SHAPEKEY_PT_manager,
 )
 
