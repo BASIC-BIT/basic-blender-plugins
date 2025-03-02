@@ -287,12 +287,20 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
             # Make sure to update the mesh after resetting all keys to zero
             context.view_layer.update()
         
+        # Remember original target state
+        original_target_modifiers = []
+        for mod in target.modifiers:
+            original_target_modifiers.append((mod.name, mod.show_viewport))
+            # Disable all modifiers to avoid interference
+            mod.show_viewport = False
+        
         # Store the original vertex positions of the target mesh before any deformation
         original_coords = [v.co.copy() for v in target.data.vertices]
         
         # Add Surface Deform modifier to target
         surface_deform = target.modifiers.new(name="SurfaceDeform", type='SURFACE_DEFORM')
         surface_deform.target = source
+        surface_deform.show_viewport = True
         
         # Make sure all vertex groups are cleared to avoid binding issues
         for vg in target.vertex_groups:
@@ -356,6 +364,10 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         if not bind_success:
             # Clean up
             target.modifiers.remove(surface_deform)
+            # Restore modifier visibility
+            for mod_name, mod_visibility in original_target_modifiers:
+                if mod_name in target.modifiers:
+                    target.modifiers[mod_name].show_viewport = mod_visibility
             # Restore original shape key values on source
             for key_name, value in stored_values.items():
                 if key_name in source.data.shape_keys.key_blocks:
@@ -366,7 +378,7 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         
         # Force immediate mesh update to capture binding
         context.view_layer.update()
-        bpy.context.view_layer.depsgraph.update()
+        context.view_layer.depsgraph.update()
         
         # Transfer each shape key
         transferred_count = 0
@@ -388,10 +400,11 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
                 
                 # Force update to ensure the modifier has updated the mesh
                 context.view_layer.update()
-                bpy.context.view_layer.depsgraph.update()
+                context.view_layer.depsgraph.update()
                 
                 # Evaluate if this shape key causes deformation
                 skip_this_key = False
+                deformed_verts = None
                 
                 if skip_minimal_effect:
                     # Get current deformed vertex coordinates
@@ -401,6 +414,9 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
                     
                     # Get deformed coordinates
                     deformed_coords = [evaluated_obj.data.vertices[i].co.copy() for i in range(len(target.data.vertices))]
+                    
+                    # Store for later use
+                    deformed_verts = deformed_coords
                     
                     # Calculate deformation metrics against original coordinates
                     max_displacement, avg_displacement = self.calculate_deformation_amount(
@@ -412,11 +428,21 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
                         key.value = 0.0
                         skipped_count += 1
                         skip_this_key = True
+                else:
+                    # Get the deformed vertices for capture
+                    depsgraph = context.evaluated_depsgraph_get()
+                    evaluated_obj = target.evaluated_get(depsgraph)
+                    deformed_verts = [evaluated_obj.data.vertices[i].co.copy() for i in range(len(target.data.vertices))]
                 
                 if not skip_this_key:
-                    # Apply as shape key on target
-                    new_key = target.shape_key_add(name=f"temp_{key.name}", from_mix=True)
+                    # Use direct mesh data manipulation for more reliable shape key creation
+                    # First create a new shape key
+                    new_key = target.shape_key_add(name=f"temp_{key.name}")
                     new_key.interpolation = 'KEY_LINEAR'
+                    
+                    # Then manually set its vertex positions from the evaluated mesh
+                    for i, co in enumerate(deformed_verts):
+                        new_key.data[i].co = co
                     
                     # Rename to match source
                     new_key.name = key.name
@@ -436,6 +462,11 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         
         # Remove the Surface Deform modifier
         target.modifiers.remove(surface_deform)
+        
+        # Restore original modifier visibility
+        for mod_name, mod_visibility in original_target_modifiers:
+            if mod_name in target.modifiers:
+                target.modifiers[mod_name].show_viewport = mod_visibility
         
         # Return to original mode
         bpy.ops.object.mode_set(mode=original_mode)
