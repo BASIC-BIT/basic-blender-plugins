@@ -16,6 +16,43 @@ from bpy.props import FloatProperty, BoolProperty, EnumProperty, PointerProperty
 # Global variable to store copied shape key data
 copied_shape_keys = {}
 
+# Define scene properties for persistent settings
+def register_properties():
+    bpy.types.Scene.shapekey_transfer_strength = FloatProperty(
+        name="Shape Key Strength",
+        description="Strength to apply when creating shape keys",
+        default=1.0,
+        min=0.0,
+        max=10.0
+    )
+    
+    bpy.types.Scene.shapekey_transfer_clear_existing = BoolProperty(
+        name="Clear Existing Shape Keys",
+        description="Remove existing shape keys on target mesh before transfer",
+        default=True
+    )
+    
+    bpy.types.Scene.shapekey_transfer_skip_minimal = BoolProperty(
+        name="Skip Non-Effective Shape Keys",
+        description="Skip shape keys that don't meaningfully deform the target mesh",
+        default=True
+    )
+    
+    bpy.types.Scene.shapekey_transfer_threshold = FloatProperty(
+        name="Deformation Threshold",
+        description="Minimum vertex displacement required to consider a shape key effective (in Blender units)",
+        default=0.001,
+        min=0.0001,
+        max=1.0,
+        precision=4
+    )
+
+def unregister_properties():
+    del bpy.types.Scene.shapekey_transfer_strength
+    del bpy.types.Scene.shapekey_transfer_clear_existing
+    del bpy.types.Scene.shapekey_transfer_skip_minimal
+    del bpy.types.Scene.shapekey_transfer_threshold
+
 class SHAPEKEY_OT_copy(bpy.types.Operator):
     """Copy all shape key values from selected object"""
     bl_idname = "shapekey.copy_values"
@@ -166,37 +203,8 @@ class SHAPEKEY_OT_load(bpy.types.Operator):
 class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
     """Transfer shape keys from source mesh to target mesh using Surface Deform modifier"""
     bl_idname = "shapekey.transfer_with_surface_deform"
-    bl_label = "Transfer Shape Keys (Surface Deform)"
+    bl_label = "Execute Transfer"
     bl_options = {'REGISTER', 'UNDO'}
-    
-    strength: FloatProperty(
-        name="Shape Key Strength",
-        description="Strength to apply when creating shape keys",
-        default=1.0,
-        min=0.0,
-        max=10.0
-    )
-    
-    clear_existing: BoolProperty(
-        name="Clear Existing Shape Keys",
-        description="Remove existing shape keys on target mesh before transfer",
-        default=True
-    )
-    
-    skip_minimal_effect: BoolProperty(
-        name="Skip Non-Effective Shape Keys",
-        description="Skip shape keys that don't meaningfully deform the target mesh",
-        default=True
-    )
-    
-    deformation_threshold: FloatProperty(
-        name="Deformation Threshold",
-        description="Minimum vertex displacement required to consider a shape key effective (in Blender units)",
-        default=0.001,
-        min=0.0001,
-        max=1.0,
-        precision=4
-    )
     
     @classmethod
     def poll(cls, context):
@@ -248,8 +256,14 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
             
         source = sources[0]  # Use the first valid source
         
+        # Get the transfer settings from the scene properties
+        strength = context.scene.shapekey_transfer_strength
+        clear_existing = context.scene.shapekey_transfer_clear_existing
+        skip_minimal_effect = context.scene.shapekey_transfer_skip_minimal
+        deformation_threshold = context.scene.shapekey_transfer_threshold
+        
         # Clear existing shape keys if needed
-        if self.clear_existing and target.data.shape_keys:
+        if clear_existing and target.data.shape_keys:
             # Store original active shape key index
             original_active_index = target.active_shape_key_index
             
@@ -279,15 +293,27 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         original_mode = context.object.mode
         bpy.ops.object.mode_set(mode='OBJECT')
         
-        # Set the right context for binding
-        override = context.copy()
-        override["object"] = target
-        override["active_object"] = target
-        override["selected_objects"] = [target]
-        override["selected_editable_objects"] = [target]
-        
-        # Bind the modifier
-        bpy.ops.object.surfacedeform_bind(override, modifier=surface_deform.name)
+        # Set the right context for binding - using the new temp_override system for Blender 4.x
+        try:
+            # First attempt with the new context override system (Blender 4.x+)
+            with context.temp_override(
+                object=target,
+                active_object=target,
+                selected_objects=[target],
+                selected_editable_objects=[target]
+            ):
+                bpy.ops.object.surfacedeform_bind(modifier=surface_deform.name)
+        except Exception as e:
+            self.report({'WARNING'}, f"Error binding Surface Deform: {str(e)}")
+            # Clean up and return
+            target.modifiers.remove(surface_deform)
+            # Restore original shape key values on source
+            for key_name, value in stored_values.items():
+                if key_name in source.data.shape_keys.key_blocks:
+                    source.data.shape_keys.key_blocks[key_name].value = value
+            # Return to original mode
+            bpy.ops.object.mode_set(mode=original_mode)
+            return {'CANCELLED'}
         
         # Create a dictionary to store basis vertex coordinates
         basis_coords = [v.co.copy() for v in target.data.vertices]
@@ -303,12 +329,12 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         for key in source.data.shape_keys.key_blocks:
             if key.name != 'Basis':
                 # Set this shape key to maximum value
-                key.value = self.strength
+                key.value = strength
                 
                 # Update the mesh so we can evaluate deformation
                 context.view_layer.update()
                 
-                if self.skip_minimal_effect:
+                if skip_minimal_effect:
                     # Get deformed vertex coordinates
                     deformed_coords = [target.data.shape_keys.key_blocks['Basis'].data[i].co.copy() 
                                      for i in range(len(target.data.vertices))]
@@ -318,7 +344,7 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
                         target, basis_coords, deformed_coords)
                     
                     # Skip if below threshold
-                    if max_displacement < self.deformation_threshold:
+                    if max_displacement < deformation_threshold:
                         self.report({'INFO'}, f"Skipping shape key {key.name} (max displacement: {max_displacement:.6f})")
                         key.value = 0.0
                         skipped_count += 1
@@ -353,19 +379,6 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
             self.report({'INFO'}, f"Transferred {transferred_count} shape keys from {source.name} to {target.name}")
         
         return {'FINISHED'}
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-    
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "strength")
-        layout.prop(self, "clear_existing")
-        layout.prop(self, "skip_minimal_effect")
-        
-        # Only show threshold if skip_minimal_effect is enabled
-        if self.skip_minimal_effect:
-            layout.prop(self, "deformation_threshold")
 
 class SHAPEKEY_PT_manager(bpy.types.Panel):
     """Shape Key Manager Panel"""
@@ -409,13 +422,9 @@ class SHAPEKEY_PT_manager(bpy.types.Panel):
             
             # Advanced shape key operations section
             box = layout.box()
-            box.label(text="Advanced Operations")
+            box.label(text="Shape Key Transfer")
             
-            # Transfer shape keys section
-            row = box.row()
-            row.operator(SHAPEKEY_OT_transfer_with_surface_deform.bl_idname)
-            
-            # Help text for transfer
+            # Source & target info
             if len(context.selected_objects) < 2:
                 box.label(text="Select source then target (active)")
             else:
@@ -426,6 +435,24 @@ class SHAPEKEY_PT_manager(bpy.types.Panel):
                         source_names += f" and {len(sources) - 3} more"
                     box.label(text=f"Source: {source_names}")
                     box.label(text=f"Target: {obj.name} (active)")
+                    
+                    # Show transfer settings in the panel
+                    col = box.column(align=True)
+                    col.prop(context.scene, "shapekey_transfer_strength", slider=True)
+                    col.prop(context.scene, "shapekey_transfer_clear_existing")
+                    col.prop(context.scene, "shapekey_transfer_skip_minimal")
+                    
+                    # Only show threshold if skip_minimal_effect is enabled
+                    if context.scene.shapekey_transfer_skip_minimal:
+                        col.prop(context.scene, "shapekey_transfer_threshold", slider=True)
+                    
+                    # Transfer button
+                    col = box.column(align=True)
+                    has_sources_with_shapekeys = any(s.data.shape_keys for s in sources if s.type == 'MESH')
+                    if has_sources_with_shapekeys:
+                        col.operator(SHAPEKEY_OT_transfer_with_surface_deform.bl_idname)
+                    else:
+                        col.label(text="Source has no shape keys")
         else:
             layout.label(text="Select a mesh object")
 
@@ -440,12 +467,14 @@ classes = (
 )
 
 def register():
+    register_properties()
     for cls in classes:
         bpy.utils.register_class(cls)
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    unregister_properties()
 
 if __name__ == "__main__":
     register()
