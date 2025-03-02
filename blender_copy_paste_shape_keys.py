@@ -283,17 +283,41 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
                 if key.name != 'Basis':
                     stored_values[key.name] = key.value
                     key.value = 0.0
+            
+            # Make sure to update the mesh after resetting all keys to zero
+            context.view_layer.update()
+        
+        # Store the original vertex positions of the target mesh before any deformation
+        original_coords = [v.co.copy() for v in target.data.vertices]
         
         # Add Surface Deform modifier to target
         surface_deform = target.modifiers.new(name="SurfaceDeform", type='SURFACE_DEFORM')
         surface_deform.target = source
         
-        # Bind the Surface Deform modifier
+        # Make sure all vertex groups are cleared to avoid binding issues
+        for vg in target.vertex_groups:
+            target.vertex_groups.remove(vg)
+        
         # We need to ensure we're in object mode for this
         original_mode = context.object.mode
         bpy.ops.object.mode_set(mode='OBJECT')
         
+        # Make sure both objects are visible and selectable
+        source_hide = source.hide_get()
+        source_select = source.hide_select
+        target_hide = target.hide_get()
+        target_select = target.hide_select
+        
+        source.hide_set(False)
+        source.hide_select = False
+        target.hide_set(False)
+        target.hide_select = False
+        
+        # Force a scene update before binding
+        context.view_layer.update()
+        
         # Set the right context for binding - using the new temp_override system for Blender 4.x
+        bind_success = False
         try:
             # First attempt with the new context override system (Blender 4.x+)
             with context.temp_override(
@@ -303,9 +327,34 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
                 selected_editable_objects=[target]
             ):
                 bpy.ops.object.surfacedeform_bind(modifier=surface_deform.name)
+                bind_success = True
         except Exception as e:
             self.report({'WARNING'}, f"Error binding Surface Deform: {str(e)}")
-            # Clean up and return
+            # Try a fallback method - sometimes binding directly works
+            try:
+                # Set active object
+                context.view_layer.objects.active = target
+                # Select only the target
+                for obj in context.selected_objects:
+                    obj.select_set(False)
+                target.select_set(True)
+                
+                # Try binding again
+                bpy.ops.object.surfacedeform_bind(modifier=surface_deform.name)
+                bind_success = True
+            except Exception as fallback_error:
+                self.report({'ERROR'}, f"Fallback binding also failed: {str(fallback_error)}")
+                bind_success = False
+        
+        # Restore visibility and selectability
+        source.hide_set(source_hide)
+        source.hide_select = source_select
+        target.hide_set(target_hide)
+        target.hide_select = target_select
+        
+        # If binding failed, clean up and exit
+        if not bind_success:
+            # Clean up
             target.modifiers.remove(surface_deform)
             # Restore original shape key values on source
             for key_name, value in stored_values.items():
@@ -315,8 +364,9 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
             bpy.ops.object.mode_set(mode=original_mode)
             return {'CANCELLED'}
         
-        # Create a dictionary to store basis vertex coordinates
-        basis_coords = [v.co.copy() for v in target.data.vertices]
+        # Force immediate mesh update to capture binding
+        context.view_layer.update()
+        bpy.context.view_layer.depsgraph.update()
         
         # Transfer each shape key
         transferred_count = 0
@@ -328,39 +378,56 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         
         for key in source.data.shape_keys.key_blocks:
             if key.name != 'Basis':
-                # Set this shape key to maximum value
+                # Reset all shape keys to zero first
+                for reset_key in source.data.shape_keys.key_blocks:
+                    if reset_key.name != 'Basis':
+                        reset_key.value = 0.0
+                
+                # Set only this shape key to maximum value
                 key.value = strength
                 
-                # Update the mesh so we can evaluate deformation
+                # Force update to ensure the modifier has updated the mesh
                 context.view_layer.update()
+                bpy.context.view_layer.depsgraph.update()
+                
+                # Evaluate if this shape key causes deformation
+                skip_this_key = False
                 
                 if skip_minimal_effect:
-                    # Get deformed vertex coordinates
-                    deformed_coords = [target.data.shape_keys.key_blocks['Basis'].data[i].co.copy() 
-                                     for i in range(len(target.data.vertices))]
+                    # Get current deformed vertex coordinates
+                    # We need the actual data from the depsgraph for accurate evaluation
+                    depsgraph = context.evaluated_depsgraph_get()
+                    evaluated_obj = target.evaluated_get(depsgraph)
                     
-                    # Calculate deformation metrics
+                    # Get deformed coordinates
+                    deformed_coords = [evaluated_obj.data.vertices[i].co.copy() for i in range(len(target.data.vertices))]
+                    
+                    # Calculate deformation metrics against original coordinates
                     max_displacement, avg_displacement = self.calculate_deformation_amount(
-                        target, basis_coords, deformed_coords)
+                        target, original_coords, deformed_coords)
                     
                     # Skip if below threshold
                     if max_displacement < deformation_threshold:
                         self.report({'INFO'}, f"Skipping shape key {key.name} (max displacement: {max_displacement:.6f})")
                         key.value = 0.0
                         skipped_count += 1
-                        continue
+                        skip_this_key = True
                 
-                # Apply as shape key on target
-                new_key = target.shape_key_add(name=f"temp_{key.name}", from_mix=True)
-                new_key.interpolation = 'KEY_LINEAR'
-                
-                # Rename to match source
-                new_key.name = key.name
+                if not skip_this_key:
+                    # Apply as shape key on target
+                    new_key = target.shape_key_add(name=f"temp_{key.name}", from_mix=True)
+                    new_key.interpolation = 'KEY_LINEAR'
+                    
+                    # Rename to match source
+                    new_key.name = key.name
+                    
+                    transferred_count += 1
                 
                 # Reset source shape key value
                 key.value = 0.0
                 
-                transferred_count += 1
+                # Force update again
+                context.view_layer.update()
         
         # Restore original shape key values on source
         for key_name, value in stored_values.items():
