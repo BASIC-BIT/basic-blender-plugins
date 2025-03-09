@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Shape Key Manager",
     "author": "AI Assistant",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (4, 3, 0),
     "location": "View3D > Sidebar > Shape Keys",
-    "description": "Copy, cut and paste shape key values between objects",
+    "description": "Copy, cut, paste and mirror shape keys between objects",
     "category": "Mesh",
 }
 
@@ -478,6 +478,124 @@ class SHAPEKEY_OT_transfer_with_surface_deform(bpy.types.Operator):
         
         return {'FINISHED'}
 
+class SHAPEKEY_OT_mirror(bpy.types.Operator):
+    """Mirror the selected shape key to create a new shape key for the opposite side"""
+    bl_idname = "shapekey.mirror"
+    bl_label = "Mirror Shape Key"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        # Check if an object is selected, it's a mesh, has shape keys, and an active shape key is selected
+        return (obj and obj.type == 'MESH' and obj.data.shape_keys
+                and obj.active_shape_key_index > 0)  # Index 0 is Basis
+    
+    def execute(self, context):
+        obj = context.active_object
+        shape_keys = obj.data.shape_keys.key_blocks
+        active_key = obj.active_shape_key
+        active_key_name = active_key.name
+        
+        # Check if we have a Basis shape key
+        if 'Basis' not in shape_keys:
+            self.report({'ERROR'}, "No Basis shape key found")
+            return {'CANCELLED'}
+        
+        basis_key = shape_keys['Basis']
+        
+        # Determine if the active key name has L/R designation
+        # Check for common patterns: NameL, Name_L, Name.L, Name-L, NameLeft, etc.
+        import re
+        
+        # Try to detect side designation
+        left_patterns = [r'([a-zA-Z0-9]+)L$', r'([a-zA-Z0-9]+)[._-]L$', r'([a-zA-Z0-9]+)Left$', r'([a-zA-Z0-9]+)[._-]Left$']
+        right_patterns = [r'([a-zA-Z0-9]+)R$', r'([a-zA-Z0-9]+)[._-]R$', r'([a-zA-Z0-9]+)Right$', r'([a-zA-Z0-9]+)[._-]Right$']
+        
+        base_name = None
+        from_side = None
+        to_side = None
+        
+        # Check if it's a left-side shape key
+        for pattern in left_patterns:
+            match = re.match(pattern, active_key_name)
+            if match:
+                base_name = match.group(1)
+                from_side = 'L'
+                to_side = 'R'
+                break
+                
+        # If not found, check if it's a right-side shape key
+        if not base_name:
+            for pattern in right_patterns:
+                match = re.match(pattern, active_key_name)
+                if match:
+                    base_name = match.group(1)
+                    from_side = 'R'
+                    to_side = 'L'
+                    break
+        
+        # If we couldn't determine the side, ask user to name it properly
+        if not base_name:
+            self.report({'WARNING'}, "Could not determine side from shape key name. Use naming like 'SmileL' or 'Smile_R'")
+            # Still proceed with X-axis mirroring but keep same name with "Mirror" suffix
+            base_name = active_key_name
+            new_key_name = f"{active_key_name}_Mirror"
+        else:
+            # Create the name for the new shape key (same pattern as original)
+            if active_key_name.endswith(from_side):
+                new_key_name = base_name + to_side
+            elif '_' in active_key_name:
+                new_key_name = base_name + '_' + to_side
+            elif '.' in active_key_name:
+                new_key_name = base_name + '.' + to_side
+            elif '-' in active_key_name:
+                new_key_name = base_name + '-' + to_side
+            elif 'Left' in active_key_name:
+                new_key_name = base_name + 'Right'
+            elif 'Right' in active_key_name:
+                new_key_name = base_name + 'Left'
+            else:
+                new_key_name = base_name + to_side
+        
+        # Check if the shape key with the new name already exists
+        if new_key_name in shape_keys:
+            # Ask user if they want to overwrite
+            self.report({'WARNING'}, f"Shape key '{new_key_name}' already exists. Using suffix to create a unique name.")
+            new_key_name = f"{new_key_name}_Mirror"
+            # Check again with the modified name
+            if new_key_name in shape_keys:
+                i = 1
+                while f"{new_key_name}_{i}" in shape_keys:
+                    i += 1
+                new_key_name = f"{new_key_name}_{i}"
+        
+        # Create a new shape key
+        new_key = obj.shape_key_add(name=new_key_name, from_mix=False)
+        new_key.interpolation = active_key.interpolation
+        
+        # Mirror the vertex data
+        for i in range(len(obj.data.vertices)):
+            # Get the vertex coordinates from both shape keys
+            basis_co = basis_key.data[i].co
+            active_co = active_key.data[i].co
+            
+            # Calculate the displacement of this vertex in the active shape key
+            displacement = active_co - basis_co
+            
+            # Mirror the displacement across the X-axis (assuming X is the symmetry axis)
+            mirrored_displacement = displacement.copy()
+            mirrored_displacement.x = -mirrored_displacement.x
+            
+            # Apply mirrored displacement to the new shape key
+            new_key.data[i].co = basis_co + mirrored_displacement
+        
+        # Set the new shape key as active
+        obj.active_shape_key_index = obj.data.shape_keys.key_blocks.find(new_key_name)
+        
+        self.report({'INFO'}, f"Created mirrored shape key: {new_key_name}")
+        return {'FINISHED'}
+
 class SHAPEKEY_PT_manager(bpy.types.Panel):
     """Shape Key Manager Panel"""
     bl_label = "Shape Key Manager"
@@ -503,6 +621,11 @@ class SHAPEKEY_PT_manager(bpy.types.Panel):
                 
                 row = col.row()
                 row.operator(SHAPEKEY_OT_paste.bl_idname)
+                
+                # Add mirror button if there's an active shape key
+                if obj.active_shape_key_index > 0:  # Index 0 is Basis
+                    row = col.row()
+                    row.operator(SHAPEKEY_OT_mirror.bl_idname)
                 
                 col.separator()
                 
@@ -560,6 +683,7 @@ classes = (
     SHAPEKEY_OT_paste,
     SHAPEKEY_OT_save,
     SHAPEKEY_OT_load,
+    SHAPEKEY_OT_mirror,
     SHAPEKEY_OT_transfer_with_surface_deform,
     SHAPEKEY_PT_manager,
 )
