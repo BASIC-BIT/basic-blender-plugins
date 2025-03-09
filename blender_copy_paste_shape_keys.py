@@ -570,28 +570,80 @@ class SHAPEKEY_OT_mirror(bpy.types.Operator):
                     i += 1
                 new_key_name = f"{new_key_name}_{i}"
         
-        # Create a new shape key
+        # Store original mode and ensure we're in object mode
+        original_mode = context.object.mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # Remember active shape key
+        original_active_key_index = obj.active_shape_key_index
+        
+        # Create the new shape key
         new_key = obj.shape_key_add(name=new_key_name, from_mix=False)
         new_key.interpolation = active_key.interpolation
         
-        # Mirror the vertex data
+        # Store original shape key values
+        original_key_values = {}
+        for key in shape_keys:
+            original_key_values[key.name] = key.value
+            key.value = 0.0
+        
+        # Set only the active shape key to 1.0
+        active_key.value = 1.0
+        
+        # Get the index of our new key
+        new_key_index = obj.data.shape_keys.key_blocks.find(new_key_name)
+        
+        # Need to use topology symmetry method for meshes that aren't perfectly mirrored
+        # First, switch to mesh edit mode
+        bpy.ops.object.mode_set(mode='EDIT')
+        
+        # Make sure all vertices are deselected
+        bpy.ops.mesh.select_all(action='DESELECT')
+        
+        # Switch to shape key edit mode for the new key
+        obj.active_shape_key_index = new_key_index
+        
+        # Return to object mode briefly to copy shape key data
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # Copy vertex positions from active key to new key
         for i in range(len(obj.data.vertices)):
-            # Get the vertex coordinates from both shape keys
-            basis_co = basis_key.data[i].co
-            active_co = active_key.data[i].co
+            new_key.data[i].co = active_key.data[i].co
+        
+        # Back to edit mode for symmetrize operation
+        bpy.ops.object.mode_set(mode='EDIT')
+        
+        # Make sure we're in vertex selection mode
+        bpy.ops.mesh.select_mode(type='VERT')
+        
+        # Select all vertices
+        bpy.ops.mesh.select_all(action='SELECT')
+        
+        # Use Blender's built-in symmetrize function which handles topology mapping
+        # Direction: -X to +X or +X to -X depending on from_side
+        if from_side == 'L':
+            # Left to Right means -X to +X
+            symmetry_direction = 'NEGATIVE_X'
+        else:
+            # Right to Left means +X to -X
+            symmetry_direction = 'POSITIVE_X'
             
-            # Calculate the displacement of this vertex in the active shape key
-            displacement = active_co - basis_co
-            
-            # Mirror the displacement across the X-axis (assuming X is the symmetry axis)
-            mirrored_displacement = displacement.copy()
-            mirrored_displacement.x = -mirrored_displacement.x
-            
-            # Apply mirrored displacement to the new shape key
-            new_key.data[i].co = basis_co + mirrored_displacement
+        # Perform the symmetrize operation on the shape key
+        bpy.ops.mesh.symmetrize(direction=symmetry_direction)
+        
+        # Return to object mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # Restore original shape key values
+        for key_name, value in original_key_values.items():
+            if key_name in shape_keys:
+                shape_keys[key_name].value = value
         
         # Set the new shape key as active
-        obj.active_shape_key_index = obj.data.shape_keys.key_blocks.find(new_key_name)
+        obj.active_shape_key_index = new_key_index
+        
+        # Return to original mode
+        bpy.ops.object.mode_set(mode=original_mode)
         
         self.report({'INFO'}, f"Created mirrored shape key: {new_key_name}")
         return {'FINISHED'}
