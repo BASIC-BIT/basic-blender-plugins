@@ -570,80 +570,121 @@ class SHAPEKEY_OT_mirror(bpy.types.Operator):
                     i += 1
                 new_key_name = f"{new_key_name}_{i}"
         
-        # Store original mode and ensure we're in object mode
-        original_mode = context.object.mode
-        bpy.ops.object.mode_set(mode='OBJECT')
-        
-        # Remember active shape key
-        original_active_key_index = obj.active_shape_key_index
-        
-        # Create the new shape key
+        # Create a new shape key
         new_key = obj.shape_key_add(name=new_key_name, from_mix=False)
         new_key.interpolation = active_key.interpolation
         
-        # Store original shape key values
-        original_key_values = {}
-        for key in shape_keys:
-            original_key_values[key.name] = key.value
-            key.value = 0.0
+        # Access the mesh vertices directly
+        mesh = obj.data
         
-        # Set only the active shape key to 1.0
-        active_key.value = 1.0
+        # First, copy the basis shape key to the new shape key
+        for i in range(len(mesh.vertices)):
+            new_key.data[i].co = basis_key.data[i].co
         
-        # Get the index of our new key
-        new_key_index = obj.data.shape_keys.key_blocks.find(new_key_name)
+        # Create a lookup dictionary for mirrored vertices
+        # Strategy: Find vertices that have the opposite X coordinate but similar Y,Z coordinates
+        # This approach handles non-perfectly mirrored meshes better
         
-        # Need to use topology symmetry method for meshes that aren't perfectly mirrored
-        # First, switch to mesh edit mode
-        bpy.ops.object.mode_set(mode='EDIT')
+        # First, create a dictionary of all vertices with their coordinates
+        from mathutils import Vector
         
-        # Make sure all vertices are deselected
-        bpy.ops.mesh.select_all(action='DESELECT')
+        # Group vertices by their X sign (left/right of the center)
+        left_vertices = []  # X < 0
+        right_vertices = []  # X > 0
+        center_vertices = []  # X ≈ 0
         
-        # Switch to shape key edit mode for the new key
-        obj.active_shape_key_index = new_key_index
+        # Small threshold for center vertices
+        center_threshold = 0.0001
         
-        # Return to object mode briefly to copy shape key data
-        bpy.ops.object.mode_set(mode='OBJECT')
+        # Sorting vertices based on X coordinate sign
+        for i in range(len(mesh.vertices)):
+            x_coord = basis_key.data[i].co.x
+            if abs(x_coord) < center_threshold:
+                center_vertices.append(i)
+            elif x_coord < 0:
+                left_vertices.append(i)
+            else:
+                right_vertices.append(i)
         
-        # Copy vertex positions from active key to new key
-        for i in range(len(obj.data.vertices)):
-            new_key.data[i].co = active_key.data[i].co
+        # Build the mirror mapping
+        mirror_map = {}
         
-        # Back to edit mode for symmetrize operation
-        bpy.ops.object.mode_set(mode='EDIT')
+        # Center vertices mirror to themselves
+        for i in center_vertices:
+            mirror_map[i] = i
         
-        # Make sure we're in vertex selection mode
-        bpy.ops.mesh.select_mode(type='VERT')
+        # Find matches between left and right vertices
+        source_vertices = left_vertices if from_side == 'L' else right_vertices
+        target_vertices = right_vertices if from_side == 'L' else left_vertices
         
-        # Select all vertices
-        bpy.ops.mesh.select_all(action='SELECT')
-        
-        # Use Blender's built-in symmetrize function which handles topology mapping
-        # Direction: -X to +X or +X to -X depending on from_side
-        if from_side == 'L':
-            # Left to Right means -X to +X
-            symmetry_direction = 'NEGATIVE_X'
-        else:
-            # Right to Left means +X to -X
-            symmetry_direction = 'POSITIVE_X'
+        for src_idx in source_vertices:
+            src_co = basis_key.data[src_idx].co
             
-        # Perform the symmetrize operation on the shape key
-        bpy.ops.mesh.symmetrize(direction=symmetry_direction)
+            # Find the vertex on the other side with mirrored X and similar Y/Z
+            best_match_idx = None
+            best_match_distance = float('inf')
+            
+            for tgt_idx in target_vertices:
+                tgt_co = basis_key.data[tgt_idx].co
+                
+                # Check if this is a potential mirror (opposite X, similar Y,Z)
+                y_z_distance = ((src_co.y - tgt_co.y) ** 2 + (src_co.z - tgt_co.z) ** 2) ** 0.5
+                x_mirror_distance = abs(abs(src_co.x) - abs(tgt_co.x))
+                
+                # Combined distance metric (prioritize Y,Z match)
+                total_distance = y_z_distance * 10 + x_mirror_distance
+                
+                if total_distance < best_match_distance:
+                    best_match_distance = total_distance
+                    best_match_idx = tgt_idx
+            
+            # If we found a match, add it to the mapping
+            if best_match_idx is not None:
+                mirror_map[src_idx] = best_match_idx
         
-        # Return to object mode
-        bpy.ops.object.mode_set(mode='OBJECT')
+        # Count vertices we'll be mirroring
+        mapped_count = len([k for k, v in mirror_map.items() if k != v])
+        self.report({'INFO'}, f"Found {mapped_count} vertices to mirror from {len(source_vertices)} source vertices")
         
-        # Restore original shape key values
-        for key_name, value in original_key_values.items():
-            if key_name in shape_keys:
-                shape_keys[key_name].value = value
+        # Only modify vertices on the TARGET side of the mesh
+        # This is critical to ensure we're not changing the entire mesh
+        modified_vertices = set()  # Keep track of vertices we've modified
+        mirrored_count = 0
+        
+        # For each vertex on the target side, check if we need to update it
+        for tgt_idx in target_vertices:
+            # Find the corresponding source vertex (if any)
+            src_idx = None
+            for s, t in mirror_map.items():
+                if t == tgt_idx:
+                    src_idx = s
+                    break
+            
+            if src_idx is not None:
+                # Get the displacement from basis in the original shape key
+                basis_co = basis_key.data[src_idx].co
+                active_co = active_key.data[src_idx].co
+                displacement = active_co - basis_co
+                
+                # Skip vertices with no displacement (not affected by shape key)
+                if displacement.length < 0.0001:
+                    continue
+                    
+                # Mirror the displacement - we flip the X component for mirroring
+                mirrored_displacement = Vector((-displacement.x, displacement.y, displacement.z))
+                
+                # Target basis coordinate
+                target_basis_co = basis_key.data[tgt_idx].co
+                
+                # Apply the mirrored displacement to the target vertex
+                new_key.data[tgt_idx].co = target_basis_co + mirrored_displacement
+                modified_vertices.add(tgt_idx)
+                mirrored_count += 1
         
         # Set the new shape key as active
-        obj.active_shape_key_index = new_key_index
+        obj.active_shape_key_index = obj.data.shape_keys.key_blocks.find(new_key_name)
         
-        # Return to original mode
-        bpy.ops.object.mode_set(mode=original_mode)
+        self.report({'INFO'}, f"Created mirrored shape key '{new_key_name}' (mirrored {mirrored_count} vertices)")
         
         self.report({'INFO'}, f"Created mirrored shape key: {new_key_name}")
         return {'FINISHED'}
