@@ -684,54 +684,117 @@ class SHAPEKEY_OT_mirror(bpy.types.Operator):
         import re
         
         # Try to detect side designation
-        left_patterns = [r'([a-zA-Z0-9]+)L$', r'([a-zA-Z0-9]+)[._-]L$', r'([a-zA-Z0-9]+)Left$', r'([a-zA-Z0-9]+)[._-]Left$']
-        right_patterns = [r'([a-zA-Z0-9]+)R$', r'([a-zA-Z0-9]+)[._-]R$', r'([a-zA-Z0-9]+)Right$', r'([a-zA-Z0-9]+)[._-]Right$']
+        # Store information about the match for better name creation
+        pattern_info = {
+            'base_name': None,
+            'from_side': None,
+            'to_side': None,
+            'separator': None   # Will store separator like '_', '.', '-' or '' (empty for direct suffix)
+        }
         
-        base_name = None
-        from_side = None
-        to_side = None
+        # Regular expression patterns for different naming conventions
+        left_patterns = [
+            (r'([a-zA-Z0-9]+)L$', ''),               # Direct suffix, e.g., "SmileL"
+            (r'([a-zA-Z0-9]+)[._-]L$', None),        # With separator (will be extracted)
+            (r'([a-zA-Z0-9]+)Left$', ''),            # Direct suffix, e.g., "SmileLeft"
+            (r'([a-zA-Z0-9]+)[._-]Left$', None)      # With separator
+        ]
+        
+        right_patterns = [
+            (r'([a-zA-Z0-9]+)R$', ''),               # Direct suffix, e.g., "SmileR"
+            (r'([a-zA-Z0-9]+)[._-]R$', None),        # With separator (will be extracted)
+            (r'([a-zA-Z0-9]+)Right$', ''),           # Direct suffix, e.g., "SmileRight"
+            (r'([a-zA-Z0-9]+)[._-]Right$', None)     # With separator
+        ]
         
         # Check if it's a left-side shape key
-        for pattern in left_patterns:
+        for pattern, sep in left_patterns:
             match = re.match(pattern, active_key_name)
             if match:
-                base_name = match.group(1)
-                from_side = 'L'
-                to_side = 'R'
+                pattern_info['base_name'] = match.group(1)
+                pattern_info['from_side'] = 'L'
+                pattern_info['to_side'] = 'R'
+                
+                # If separator needs to be extracted
+                if sep is None:
+                    # Find which separator was used
+                    if '_L' in active_key_name:
+                        pattern_info['separator'] = '_'
+                    elif '.L' in active_key_name:
+                        pattern_info['separator'] = '.'
+                    elif '-L' in active_key_name:
+                        pattern_info['separator'] = '-'
+                    # For names like "Smile_Left"
+                    elif '_Left' in active_key_name:
+                        pattern_info['separator'] = '_'
+                    elif '.Left' in active_key_name:
+                        pattern_info['separator'] = '.'
+                    elif '-Left' in active_key_name:
+                        pattern_info['separator'] = '-'
+                else:
+                    pattern_info['separator'] = sep
+                
                 break
                 
         # If not found, check if it's a right-side shape key
-        if not base_name:
-            for pattern in right_patterns:
+        if not pattern_info['base_name']:
+            for pattern, sep in right_patterns:
                 match = re.match(pattern, active_key_name)
                 if match:
-                    base_name = match.group(1)
-                    from_side = 'R'
-                    to_side = 'L'
+                    pattern_info['base_name'] = match.group(1)
+                    pattern_info['from_side'] = 'R'
+                    pattern_info['to_side'] = 'L'
+                    
+                    # If separator needs to be extracted
+                    if sep is None:
+                        # Find which separator was used
+                        if '_R' in active_key_name:
+                            pattern_info['separator'] = '_'
+                        elif '.R' in active_key_name:
+                            pattern_info['separator'] = '.'
+                        elif '-R' in active_key_name:
+                            pattern_info['separator'] = '-'
+                        # For names like "Smile_Right"
+                        elif '_Right' in active_key_name:
+                            pattern_info['separator'] = '_'
+                        elif '.Right' in active_key_name:
+                            pattern_info['separator'] = '.'
+                        elif '-Right' in active_key_name:
+                            pattern_info['separator'] = '-'
+                    else:
+                        pattern_info['separator'] = sep
+                    
                     break
         
         # If we couldn't determine the side, ask user to name it properly
-        if not base_name:
+        if not pattern_info['base_name']:
             self.report({'WARNING'}, "Could not determine side from shape key name. Use naming like 'SmileL' or 'Smile_R'")
             # Still proceed with X-axis mirroring but keep same name with "Mirror" suffix
             base_name = active_key_name
             new_key_name = f"{active_key_name}_Mirror"
         else:
-            # Create the name for the new shape key (same pattern as original)
-            if active_key_name.endswith(from_side):
-                new_key_name = base_name + to_side
-            elif '_' in active_key_name:
-                new_key_name = base_name + '_' + to_side
-            elif '.' in active_key_name:
-                new_key_name = base_name + '.' + to_side
-            elif '-' in active_key_name:
-                new_key_name = base_name + '-' + to_side
-            elif 'Left' in active_key_name:
-                new_key_name = base_name + 'Right'
-            elif 'Right' in active_key_name:
-                new_key_name = base_name + 'Left'
+            # Create the new name using the pattern information
+            base_name = pattern_info['base_name']
+            to_side = pattern_info['to_side']
+            separator = pattern_info['separator']
+            
+            # Handle special cases for "Left" and "Right"
+            if to_side == 'L' and 'Right' in active_key_name:
+                if separator:
+                    new_key_name = base_name + separator + 'Left'
+                else:
+                    new_key_name = base_name + 'Left'
+            elif to_side == 'R' and 'Left' in active_key_name:
+                if separator:
+                    new_key_name = base_name + separator + 'Right'
+                else:
+                    new_key_name = base_name + 'Right'
             else:
-                new_key_name = base_name + to_side
+                # Standard L/R naming
+                if separator:
+                    new_key_name = base_name + separator + to_side
+                else:
+                    new_key_name = base_name + to_side
         
         # Check if the shape key with the new name already exists
         if new_key_name in shape_keys:
