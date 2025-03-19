@@ -1105,6 +1105,76 @@ class SHAPEKEY_OT_mirror_all_missing(bpy.types.Operator):
         
         return {'FINISHED'}
 
+class VERTEXGROUP_OT_remove_selected_vertices(bpy.types.Operator):
+    """Remove selected vertices from vertex groups"""
+    bl_idname = "vertexgroup.remove_selected_vertices"
+    bl_label = "Remove Selected Vertices"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    all_groups: BoolProperty(
+        name="All Vertex Groups",
+        description="Remove selected vertices from all vertex groups",
+        default=False
+    )
+    
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        # Check if in edit mode, object is a mesh, and has vertex groups
+        return (obj and obj.type == 'MESH' and obj.mode == 'EDIT'
+                and len(obj.vertex_groups) > 0)
+    
+    def execute(self, context):
+        obj = context.active_object
+        
+        # Get selected vertices
+        bpy.ops.object.mode_set(mode='OBJECT')  # Need to be in object mode to access selection
+        selected_vertices = [v.index for v in obj.data.vertices if v.select]
+        
+        if not selected_vertices:
+            bpy.ops.object.mode_set(mode='EDIT')  # Return to edit mode
+            self.report({'WARNING'}, "No vertices selected")
+            return {'CANCELLED'}
+        
+        # Determine which vertex groups to process
+        if self.all_groups:
+            groups_to_process = obj.vertex_groups
+        else:
+            # Only process the active vertex group if one is selected
+            active_group_index = obj.vertex_groups.active_index
+            if active_group_index >= 0:
+                groups_to_process = [obj.vertex_groups[active_group_index]]
+            else:
+                bpy.ops.object.mode_set(mode='EDIT')  # Return to edit mode
+                self.report({'WARNING'}, "No active vertex group selected")
+                return {'CANCELLED'}
+        
+        # Remove selected vertices from each vertex group
+        modified_count = 0
+        for group in groups_to_process:
+            try:
+                group.remove(selected_vertices)
+                modified_count += 1
+            except Exception as e:
+                self.report({'WARNING'}, f"Error removing vertices from {group.name}: {str(e)}")
+        
+        # Return to edit mode
+        bpy.ops.object.mode_set(mode='EDIT')
+        
+        if self.all_groups:
+            self.report({'INFO'}, f"Removed selected vertices from {modified_count} vertex groups")
+        else:
+            self.report({'INFO'}, f"Removed selected vertices from '{groups_to_process[0].name}'")
+        
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "all_groups")
+
 class VERTEXGROUP_OT_combine_groups(bpy.types.Operator):
     """Create a new vertex group that combines weights from all existing vertex groups"""
     bl_idname = "vertexgroup.combine_groups"
@@ -1345,6 +1415,11 @@ class SHAPEKEY_PT_manager(bpy.types.Panel):
                 row = col.row()
                 row.operator(VERTEXGROUP_OT_combine_groups.bl_idname)
                 
+                # Add the remove selected vertices operator for vertex groups (only in edit mode)
+                if obj.mode == 'EDIT':
+                    row = col.row()
+                    row.operator(VERTEXGROUP_OT_remove_selected_vertices.bl_idname)
+                
                 # Display number of vertex groups
                 col.label(text=f"Vertex Groups: {len(obj.vertex_groups)}")
             else:
@@ -1396,6 +1471,7 @@ classes = (
     SHAPEKEY_OT_mirror_all_missing,
     SHAPEKEY_OT_transfer_with_surface_deform,
     SHAPEKEY_OT_remove_selected_vertices,
+    VERTEXGROUP_OT_remove_selected_vertices,
     VERTEXGROUP_OT_combine_groups,
     SHAPEKEY_PT_manager,
 )
