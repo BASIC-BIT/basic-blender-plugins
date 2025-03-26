@@ -1,111 +1,81 @@
-# Shape Key Manager
+# BASICs Shape Key Manager
 
-A Blender addon for managing, transferring, and manipulating shape keys (blend shapes) across meshes.
+A powerful Blender addon that makes working with shape keys easy and efficient.
 
-## Features
+![BASICs Shape Key Manager](https://via.placeholder.com/800x400?text=BASICs+Shape+Key+Manager)
 
-### Basic Operations
-- **Copy Shape Keys**: Copy all shape key values from the active object
-- **Cut Shape Keys**: Copy all shape key values and set them to zero
-- **Paste Shape Keys**: Apply copied shape key values to the active object
-- **Save to File**: Save shape key values to a JSON file for backup or sharing
-- **Load from File**: Load shape key values from a JSON file
+## What Can It Do?
 
-### Advanced Operations
-- **Transfer Shape Keys via Surface Deform**: Transfer shape keys between meshes with different topologies using Blender's Surface Deform modifier
-- **Smart Shape Key Filtering**: Automatically skip shape keys that don't meaningfully affect the target mesh
-
-## Requirements
-- Blender 4.3 or higher
+- **Copy, cut, and paste** shape key values between objects
+- **Mirror** shape keys from one side to another (L to R or R to L)
+- **Transfer** shape keys between completely different meshes
+- **Remove** shape key influence from selected vertices
+- **Combine** vertex groups into new ones
+- **Save and load** shape keys to/from files
 
 ## Installation
 
-1. Download the `blender_copy_paste_shape_keys.py` file
-2. Open Blender
-3. Go to Edit > Preferences > Add-ons
-4. Click "Install..." and select the downloaded file
-5. Enable the addon by checking the box next to "Mesh: Shape Key Manager"
+### Quick Install
+1. [Download the latest release](https://github.com/BASICBIT/blender-shape-keys/releases/latest)
+2. In Blender: Edit > Preferences > Add-ons > Install...
+3. Select the downloaded ZIP file
+4. Enable the addon by checking the box
 
-## Usage
+### Manual Install
+1. Download or clone this repository
+2. Navigate to the `scripts` folder
+3. Run `package_addon.bat` (Windows) or `package_addon.sh` (macOS/Linux)
+4. Choose option 2 to package and install to Blender
 
-### Basic Operations
+## How to Use
 
-The addon adds a new panel in the 3D View sidebar (press `N` to open) under the "Shape Keys" tab.
+The addon adds a "BASIC" tab in the 3D View sidebar (press N to show/hide).
 
-#### Copying and Pasting Shape Key Values
-
-1. Select an object with shape keys
-2. Click "Copy Shape Key Values" to store the current values
-3. Select a different object that has the same shape key names
-4. Click "Paste Shape Key Values" to apply the copied values
-
-#### Cutting Shape Key Values
+### Quickly Copy Shape Keys Between Objects
 
 1. Select an object with shape keys
-2. Click "Cut Shape Key Values" to copy the current values and set them to zero
+2. Click "Copy Shape Key Values"
+3. Select another object
+4. Click "Paste Shape Key Values"
 
-#### Saving and Loading Shape Key Values
+### Mirroring Made Easy
 
-1. Click "Save Shape Keys to File" to export values to a JSON file
-2. Click "Load Shape Keys from File" to import values from a previously saved file
+1. Select an object with shape keys named with L/R convention (e.g., "SmileL")
+2. Select the shape key you want to mirror
+3. Click "Mirror Shape Key"
+4. A new mirrored shape key is created (e.g., "SmileR")
 
-### Advanced Operations
+### Transfer Between Different Meshes
 
-#### Transferring Shape Keys Between Different Meshes
+1. Select the source mesh with shape keys
+2. Hold Shift and select the target mesh (so it's active)
+3. Adjust transfer settings in the panel
+4. Click "Execute Transfer"
 
-This feature allows you to transfer shape keys from one mesh to another, even if they have completely different topologies:
+### Save Your Work
 
-1. Select the source mesh with shape keys you want to transfer
-2. While holding Shift, select the target mesh (making it the active object with yellow outline)
-3. Click "Transfer Shape Keys (Surface Deform)" in the Advanced Operations section
-4. Configure the options:
-   - **Shape Key Strength**: Adjusts the intensity of the transferred shape keys (default: 1.0)
-   - **Clear Existing Shape Keys**: Remove existing shape keys on target before transfer
-   - **Skip Non-Effective Shape Keys**: Only create shape keys that actually deform the target mesh
-   - **Deformation Threshold**: Minimum vertex displacement (in Blender units) required to keep a shape key
-5. Click "OK" to begin the transfer process
+1. Click "Save Shape Keys to File"
+2. Choose a location to save the JSON file
+3. Later, use "Load Shape Keys from File" to restore them
 
-The addon will:
-- Add a Surface Deform modifier to the target mesh
-- Bind it to the source mesh
-- For each shape key on the source:
-  - Activate one shape key at maximum value
-  - Measure how much the target mesh actually deforms
-  - Skip shape keys that don't produce significant deformation (if enabled)
-  - Create a corresponding shape key on the target for those that do have an effect
-  - Name it to match the source shape key
-- Clean up by removing the modifier when finished
+## Requirements
 
-## Tips and Troubleshooting
+- Blender 4.3 or higher
+- Python 3.6+ (for packaging scripts)
 
-- **Intelligent Shape Key Filtering**: When transferring shape keys from a full body to clothing, enable "Skip Non-Effective Shape Keys" to automatically filter out irrelevant shape keys (e.g., leg shape keys won't affect a shirt).
-- **Adjusting Threshold**: If too many shape keys are being skipped, try lowering the deformation threshold. If unnecessary shape keys are being created, increase the threshold.
-- **Shape Key Transfer**: The source mesh should completely envelop the target mesh for best results.
-- **Surface Deform Error**: If binding fails, try:
-  - Moving the meshes closer together
-  - Reducing mesh complexity
-  - Ensuring meshes don't have non-manifold geometry
-- **Performance**: For meshes with many vertices, the transfer process may take some time.
-- **Undo Support**: All operations that modify mesh data support undo (Ctrl+Z).
+## Tips for Best Results
 
-## Notes on Shape Key Transfer
+- When transferring shape keys, ensure the source mesh completely surrounds the target
+- For mirroring, use consistent naming conventions (SmileL/SmileR, Smile.L/Smile.R)
+- Use "Skip Non-Effective Shape Keys" option to avoid creating unnecessary shape keys
 
-The Surface Deform transfer method works best when:
-- The source mesh has clean topology
-- The meshes are in similar poses
-- The target mesh is fully contained within the source mesh's volume
+## Need More?
 
-## Version History
-
-- 1.0: Initial release
-  - Basic copy, cut, paste, save, and load functionality
-  - Shape key transfer via Surface Deform
-  - Smart filtering of non-effective shape keys during transfer
-
-## License
-
-This addon is free to use and modify.
+Check out the documentation files in the `docs` folder for detailed information on each feature:
+- `docs/AI_CODEBASE_MAP.md` - Overview of the codebase structure
+- `docs/AI_FUNCTIONALITY_GUIDE.md` - Detailed functionality explanation
+- `docs/AI_RELATIONSHIP_MAP.md` - Component relationship documentation
 
 ## Credits
 
-Created by AI Assistant 
+Created by BASICBIT 

@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Utilize [AI_CODEBASE_MAP.md](mdc:docs/AI_CODEBASE_MAP.md) [AI_FUNCTIONALITY_GUIDE.md](mdc:docs/AI_FUNCTIONALITY_GUIDE.md) and [AI_RELATIONSHIP_MAP.md](mdc:docs/AI_RELATIONSHIP_MAP.md) files to understand the existing structure of the codebase BEFORE doing any work or making any change. ALWAYS keep these files up to date with ANY change that is made.
