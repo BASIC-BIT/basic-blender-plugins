@@ -44,7 +44,26 @@ This document explains the key functionality and logic flow of the BASICs Shape 
    - Analyzes both L→R and R→L mappings
    - Chooses mapping that produces more significant deformation
 
-### 3. Shape Key Transfer
+### 3. Mesh Mirroring
+
+**Force Mirror Mesh Workflow**:
+1. User selects an object (can be in Edit or Object mode)
+2. The Force Mirror operator performs the following steps:
+   - Determines which vertices are on left/right/center using `build_mirror_vertex_mapping()`
+   - Creates vertex mappings using `create_vertex_mirror_mapping()` with Octree
+   - In Edit mode: Only affects mirrors of selected vertices
+   - In Object mode: Processes all vertices
+   - Optionally creates a vertex group for failed vertices
+   - Applies precise mirroring transformations
+
+**Key Features**:
+- Configurable tolerance for vertex matching
+- Fault tolerance mode that continues even if some vertices fail
+- Option to select mirrored vertices after operation
+- Special handling for center vertices
+- Direction control (L→R or R→L)
+
+### 4. Shape Key Transfer
 
 **Transfer Workflow**:
 1. User selects source object (with shape keys) and target object
@@ -56,14 +75,14 @@ This document explains the key functionality and logic flow of the BASICs Shape 
      - Creates new shape key on target using those positions
    - Optionally filters out shape keys with minimal effect using `calculate_deformation_amount()`
 
-### 4. Edit Mode Operations
+### 5. Edit Mode Operations
 
 **Remove Selected Vertices Workflow**:
 1. User enters Edit Mode and selects vertices
 2. The operator resets those vertex positions to match the Basis shape key
 3. This effectively removes the influence of shape keys on those vertices
 
-### 5. Vertex Group Operations
+### 6. Vertex Group Operations
 
 **Combine Groups Workflow**:
 1. User selects object with vertex groups
@@ -96,6 +115,15 @@ create_vertex_mirror_mapping() (uses Octree) →
 mirror_shape_key() → Creates new shape key → Updates UI
 ```
 
+### Mesh Mirroring Data Flow:
+```
+User selects mesh → Clicks Force Mirror → MESH_OT_force_mirror.execute() →
+[If in Edit mode] get_selected_vertices() →
+build_mirror_vertex_mapping() → create_vertex_mirror_mapping() (uses Octree) →
+apply_mirror_transformation() → [If option enabled] create_failed_vertex_group() →
+Updates mesh vertices → Updates UI
+```
+
 ### Shape Key Transfer Data Flow:
 ```
 User selects objects → Clicks Transfer → SHAPEKEY_OT_transfer_with_surface_deform.execute() → 
@@ -103,6 +131,17 @@ Adds Surface Deform modifier → Binds to source →
 For each shape key: Activate on source → Capture deformation on target → 
 Create shape key on target → Updates UI
 ```
+
+## Common Utility Functions
+
+The addon now uses shared utility functions in `core/mirror_utils.py` for both shape key and mesh mirroring operations:
+
+1. **build_mirror_vertex_mapping()**: Groups vertices as left/right/center based on X coordinate
+2. **create_vertex_mirror_mapping()**: Creates a detailed mapping between vertices using Octree
+3. **detect_shape_key_side()**: Analyzes name to determine L/R designation
+4. **generate_mirrored_name()**: Creates an appropriate name for the mirrored element
+
+These shared functions allow consistent behavior between mesh and shape key mirroring operations.
 
 ## CI/CD Process
 

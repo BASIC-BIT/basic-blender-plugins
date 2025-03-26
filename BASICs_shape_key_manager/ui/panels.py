@@ -59,6 +59,30 @@ class SHAPEKEY_PT_manager(Panel):
             else:
                 box.label(text="No Shape Keys on selected object")
             
+            # Mesh Operations section (new)
+            box = layout.box()
+            box.label(text="Mesh Operations")
+            
+            col = box.column(align=True)
+            row = col.row()
+            row.operator("mesh.force_mirror")
+            
+            # Additional UI for advanced mesh settings
+            if context.scene.get("mesh_mirror_show_advanced", False):
+                row = col.row()
+                row.prop(context.scene, "mesh_mirror_show_advanced", toggle=True, text="Hide Advanced")
+                
+                # Show advanced options if we have them defined
+                if hasattr(context.scene, "mesh_mirror_center_tolerance"):
+                    row = col.row()
+                    row.prop(context.scene, "mesh_mirror_center_tolerance")
+                if hasattr(context.scene, "mesh_mirror_move_center_vertices"):
+                    row = col.row()
+                    row.prop(context.scene, "mesh_mirror_move_center_vertices")
+            else:
+                row = col.row()
+                row.prop(context.scene, "mesh_mirror_show_advanced", toggle=True, text="Show Advanced")
+            
             # Vertex Group operations section
             box = layout.box()
             box.label(text="Vertex Group Operations")

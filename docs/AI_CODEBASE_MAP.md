@@ -10,12 +10,14 @@ BASICs_shape_key_manager/
 ├── __init__.py                  # Main addon entry point, with bl_info
 ├── core/                        # Core functionality
 │   ├── __init__.py              # Exports core components
+│   ├── mirror_utils.py          # Common mirroring utility functions
 │   └── octree.py                # Octree implementation for spatial searching
 ├── operators/                   # Blender operators
 │   ├── __init__.py              # Registers all operators
 │   ├── basic_ops.py             # Basic shape key operations (copy/cut/paste)
 │   ├── edit_ops.py              # Edit mode operations
 │   ├── mirror_ops.py            # Shape key mirroring functions
+│   ├── mesh_mirror_ops.py       # Mesh mirroring functions
 │   ├── transfer_ops.py          # Shape key transfer between objects
 │   └── vertex_group_ops.py      # Vertex group operations
 ├── ui/                          # User interface components
@@ -43,7 +45,9 @@ BASICs_shape_key_manager/
 ├── docs/                        # Documentation directory
 │   ├── AI_CODEBASE_MAP.md       # This document
 │   ├── AI_FUNCTIONALITY_GUIDE.md # Detailed functionality guide
-│   └── AI_RELATIONSHIP_MAP.md   # Component relationship mapping
+│   ├── AI_RELATIONSHIP_MAP.md   # Component relationship mapping
+│   └── prompt_plans/            # Implementation plans
+│       └── force_mirror_mesh_implementation_plan.md # Plan for mesh mirroring feature
 └── README.md                    # Main repository documentation
 ```
 
@@ -65,6 +69,14 @@ BASICs_shape_key_manager/
 - **Main Functions**:
   - `find_nearest()`: Find nearest point in 3D space
 
+### core/mirror_utils.py
+- **Purpose**: Common utility functions for mirroring operations
+- **Main Functions**:
+  - `detect_shape_key_side()`: Detects if a name has L/R designation
+  - `generate_mirrored_name()`: Creates appropriate name for mirrored objects
+  - `build_mirror_vertex_mapping()`: Maps vertices to left/right/center
+  - `create_vertex_mirror_mapping()`: Creates detailed vertex mapping with octree
+
 ### operators/basic_ops.py
 - **Purpose**: Basic shape key manipulation operators
 - **Key Classes**:
@@ -80,11 +92,18 @@ BASICs_shape_key_manager/
   - `SHAPEKEY_OT_mirror`: Mirrors a single shape key
   - `SHAPEKEY_OT_mirror_all_missing`: Mirrors all shape keys missing counterparts
 - **Helper Functions**:
-  - `detect_shape_key_side()`: Detects if a shape key is for left or right side
-  - `generate_mirrored_name()`: Generates appropriate name for mirrored shape key
-  - `build_mirror_vertex_mapping()`: Creates mapping between vertices for mirroring
-  - `create_vertex_mirror_mapping()`: Detailed vertex mapping with octree
   - `mirror_shape_key()`: Performs the actual mirroring operation
+
+### operators/mesh_mirror_ops.py
+- **Purpose**: Mesh mirroring functionality
+- **Key Classes**:
+  - `MESH_OT_force_mirror`: Forces symmetry in mesh by mirroring vertices
+- **Helper Functions**:
+  - `get_selected_vertices()`: Gets selected vertices in edit mode
+  - `find_mirrors_of_selected()`: Maps selected vertices to their mirrors
+  - `apply_mirror_transformation()`: Applies mirroring to vertices
+  - `handle_center_vertices()`: Special handling for vertices near the center
+  - `create_failed_vertex_group()`: Creates vertex group for vertices that couldn't be mirrored
 
 ### operators/transfer_ops.py
 - **Purpose**: Transfer shape keys between objects
@@ -118,7 +137,8 @@ BASICs_shape_key_manager/
 - The main `__init__.py` imports and registers all components
 - `operators/__init__.py` collects and registers all operators
 - `ui/panels.py` references operator IDs (bl_idname) to create UI buttons
-- `mirror_ops.py` uses the Octree from `core/octree.py` for efficient vertex mapping
+- `mirror_ops.py` and `mesh_mirror_ops.py` use the common functions from `core/mirror_utils.py`
+- Both mirroring modules use the Octree from `core/octree.py` for efficient vertex mapping
 
 ## Global Data
 - `copied_shape_keys`: Dictionary in main `__init__.py` that stores copied shape key data

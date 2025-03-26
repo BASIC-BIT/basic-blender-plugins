@@ -41,10 +41,35 @@ def register_properties():
         max=1.0,
         precision=4
     )
+    
+    # Mesh mirror properties
+    bpy.types.Scene.mesh_mirror_show_advanced = BoolProperty(
+        name="Show Advanced Options",
+        description="Show or hide advanced mesh mirroring options",
+        default=False
+    )
+    
+    bpy.types.Scene.mesh_mirror_center_tolerance = FloatProperty(
+        name="Center Tolerance",
+        description="Maximum distance from center to consider a vertex as 'center' (in Blender units)",
+        default=0.0001,
+        min=0.00001,
+        max=0.1,
+        precision=5
+    )
+    
+    bpy.types.Scene.mesh_mirror_move_center_vertices = BoolProperty(
+        name="Move Center Vertices to X=0",
+        description="Force vertices within center tolerance to be exactly at X=0",
+        default=True
+    )
 
 def unregister_properties():
     del bpy.types.Scene.shapekey_transfer_strength
     del bpy.types.Scene.shapekey_transfer_clear_existing
     del bpy.types.Scene.shapekey_transfer_skip_minimal
     del bpy.types.Scene.shapekey_transfer_threshold
-    del bpy.types.Scene.shapekey_mirror_tolerance 
+    del bpy.types.Scene.shapekey_mirror_tolerance
+    del bpy.types.Scene.mesh_mirror_show_advanced
+    del bpy.types.Scene.mesh_mirror_center_tolerance
+    del bpy.types.Scene.mesh_mirror_move_center_vertices 
