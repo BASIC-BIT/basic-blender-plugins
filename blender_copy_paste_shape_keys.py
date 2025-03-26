@@ -1,6 +1,6 @@
 bl_info = {
-    "name": "Shape Key Manager",
-    "author": "AI Assistant",
+    "name": "BASICs Shape Key Manager",
+    "author": "BASICBIT",
     "version": (1, 1),
     "blender": (4, 3, 0),
     "location": "View3D > Sidebar > Shape Keys",
@@ -221,12 +221,23 @@ def register_properties():
         max=1.0,
         precision=4
     )
+    
+    # Mirror shape key properties
+    bpy.types.Scene.shapekey_mirror_tolerance = FloatProperty(
+        name="Mirror Tolerance",
+        description="Maximum distance allowed between mirrored vertices (in Blender units)",
+        default=0.001,
+        min=0.0001,
+        max=1.0,
+        precision=4
+    )
 
 def unregister_properties():
     del bpy.types.Scene.shapekey_transfer_strength
     del bpy.types.Scene.shapekey_transfer_clear_existing
     del bpy.types.Scene.shapekey_transfer_skip_minimal
     del bpy.types.Scene.shapekey_transfer_threshold
+    del bpy.types.Scene.shapekey_mirror_tolerance
 
 class SHAPEKEY_OT_copy(bpy.types.Operator):
     """Copy all shape key values from selected object"""
@@ -805,7 +816,7 @@ def build_mirror_vertex_mapping(mesh, basis_key):
     
     return left_vertices, right_vertices, center_vertices
 
-def create_vertex_mirror_mapping(mesh, basis_key, from_side, left_vertices, right_vertices, center_vertices):
+def create_vertex_mirror_mapping(mesh, basis_key, from_side, left_vertices, right_vertices, center_vertices, tolerance=0.001):
     """Create a detailed mapping between source and target vertices for mirroring"""
     # Build the mirror mapping
     mirror_map = {}
@@ -834,8 +845,8 @@ def create_vertex_mirror_mapping(mesh, basis_key, from_side, left_vertices, righ
         # Create a query point with the mirrored X coordinate
         query_point = (-src_co.x, src_co.y, src_co.z)
         
-        # Find the nearest vertex in the octree
-        distance, best_match_idx = octree.find_nearest(query_point)
+        # Find the nearest vertex in the octree within the tolerance distance
+        distance, best_match_idx = octree.find_nearest(query_point, max_dist=tolerance)
         
         # If we found a match, add it to the mapping
         if best_match_idx is not None:
@@ -897,6 +908,21 @@ class SHAPEKEY_OT_mirror(bpy.types.Operator):
     bl_label = "Mirror Shape Key"
     bl_options = {'REGISTER', 'UNDO'}
     
+    use_custom_tolerance: BoolProperty(
+        name="Use Custom Tolerance",
+        description="Use a custom tolerance value instead of the global setting",
+        default=False
+    )
+    
+    custom_tolerance: FloatProperty(
+        name="Custom Tolerance",
+        description="Maximum distance allowed between mirrored vertices (in Blender units)",
+        default=0.001,
+        min=0.0001,
+        max=1.0,
+        precision=4
+    )
+    
     @classmethod
     def poll(cls, context):
         obj = context.active_object
@@ -909,6 +935,9 @@ class SHAPEKEY_OT_mirror(bpy.types.Operator):
         shape_keys = obj.data.shape_keys.key_blocks
         active_key = obj.active_shape_key
         active_key_name = active_key.name
+        
+        # Get the tolerance value to use
+        tolerance = self.custom_tolerance if self.use_custom_tolerance else context.scene.shapekey_mirror_tolerance
         
         # Check if we have a Basis shape key
         if 'Basis' not in shape_keys:
@@ -933,7 +962,7 @@ class SHAPEKEY_OT_mirror(bpy.types.Operator):
         # Create detailed vertex mapping
         from_side = pattern_info.get('from_side')
         source_vertices, target_vertices, mirror_map, reverse_map = create_vertex_mirror_mapping(
-            obj.data, basis_key, from_side, left_vertices, right_vertices, center_vertices)
+            obj.data, basis_key, from_side, left_vertices, right_vertices, center_vertices, tolerance)
         
         # Count vertices we'll be mirroring
         mapped_count = len([k for k, v in mirror_map.items() if k != v])
@@ -948,12 +977,38 @@ class SHAPEKEY_OT_mirror(bpy.types.Operator):
         
         self.report({'INFO'}, f"Created mirrored shape key '{new_key_name}' (mirrored {mirrored_count} vertices)")
         return {'FINISHED'}
+        
+    def invoke(self, context, event):
+        # Initialize custom_tolerance with the global setting
+        self.custom_tolerance = context.scene.shapekey_mirror_tolerance
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "use_custom_tolerance")
+        if self.use_custom_tolerance:
+            layout.prop(self, "custom_tolerance")
 
 class SHAPEKEY_OT_mirror_all_missing(bpy.types.Operator):
     """Mirror all shape keys that don't have a mirrored version yet"""
     bl_idname = "shapekey.mirror_all_missing"
     bl_label = "Mirror All Missing"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    use_custom_tolerance: BoolProperty(
+        name="Use Custom Tolerance",
+        description="Use a custom tolerance value instead of the global setting",
+        default=False
+    )
+    
+    custom_tolerance: FloatProperty(
+        name="Custom Tolerance",
+        description="Maximum distance allowed between mirrored vertices (in Blender units)",
+        default=0.001,
+        min=0.0001,
+        max=1.0,
+        precision=4
+    )
     
     @classmethod
     def poll(cls, context):
@@ -964,6 +1019,9 @@ class SHAPEKEY_OT_mirror_all_missing(bpy.types.Operator):
     def execute(self, context):
         obj = context.active_object
         shape_keys = obj.data.shape_keys.key_blocks
+        
+        # Get the tolerance value to use
+        tolerance = self.custom_tolerance if self.use_custom_tolerance else context.scene.shapekey_mirror_tolerance
         
         # Check if we have a Basis shape key
         if 'Basis' not in shape_keys:
@@ -1015,7 +1073,7 @@ class SHAPEKEY_OT_mirror_all_missing(bpy.types.Operator):
             
             # Create detailed vertex mapping
             source_vertices, target_vertices, mirror_map, reverse_map = create_vertex_mirror_mapping(
-                obj.data, basis_key, pattern_info['from_side'], left_vertices, right_vertices, center_vertices)
+                obj.data, basis_key, pattern_info['from_side'], left_vertices, right_vertices, center_vertices, tolerance)
             
             # Create the mirrored shape key
             new_key, mirrored_count = mirror_shape_key(
@@ -1039,11 +1097,11 @@ class SHAPEKEY_OT_mirror_all_missing(bpy.types.Operator):
             
             # L->R mapping
             source_vertices_l, target_vertices_l, mirror_map_l, reverse_map_l = create_vertex_mirror_mapping(
-                obj.data, basis_key, 'L', left_vertices, right_vertices, center_vertices)
+                obj.data, basis_key, 'L', left_vertices, right_vertices, center_vertices, tolerance)
                 
             # R->L mapping
             source_vertices_r, target_vertices_r, mirror_map_r, reverse_map_r = create_vertex_mirror_mapping(
-                obj.data, basis_key, 'R', left_vertices, right_vertices, center_vertices)
+                obj.data, basis_key, 'R', left_vertices, right_vertices, center_vertices, tolerance)
             
             # Count deformation on both sides
             l_side_deformation = 0
@@ -1104,6 +1162,17 @@ class SHAPEKEY_OT_mirror_all_missing(bpy.types.Operator):
             self.report({'INFO'}, "No shape keys needed mirroring")
         
         return {'FINISHED'}
+        
+    def invoke(self, context, event):
+        # Initialize custom_tolerance with the global setting
+        self.custom_tolerance = context.scene.shapekey_mirror_tolerance
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "use_custom_tolerance")
+        if self.use_custom_tolerance:
+            layout.prop(self, "custom_tolerance")
 
 class VERTEXGROUP_OT_combine_groups(bpy.types.Operator):
     """Create a new vertex group that combines weights from all existing vertex groups"""
@@ -1282,12 +1351,12 @@ class SHAPEKEY_OT_remove_selected_vertices(bpy.types.Operator):
         layout.prop(self, "all_shape_keys")
 
 class SHAPEKEY_PT_manager(bpy.types.Panel):
-    """Shape Key Manager Panel"""
-    bl_label = "Shape Key Manager"
+    """BASICs Shape Key Manager Panel"""
+    bl_label = "BASICs Shape Key Manager"
     bl_idname = "SHAPEKEY_PT_manager"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Shape Keys"
+    bl_category = "BASIC"
     
     def draw(self, context):
         layout = self.layout
@@ -1312,11 +1381,15 @@ class SHAPEKEY_PT_manager(bpy.types.Panel):
                 if obj.active_shape_key_index > 0:  # Index 0 is Basis
                     row = col.row()
                     row.operator(SHAPEKEY_OT_mirror.bl_idname)
-                
                 # Mirror All Missing button - always available if any shape keys exist
                 row = col.row()
                 row.operator(SHAPEKEY_OT_mirror_all_missing.bl_idname)
                 
+                # Add mirror tolerance setting
+                row = col.row()
+                row.prop(context.scene, "shapekey_mirror_tolerance", slider=True)
+                
+                # Add the remove selected vertices operator (only in edit mode)
                 # Add the remove selected vertices operator (only in edit mode)
                 if obj.mode == 'EDIT':
                     row = col.row()
