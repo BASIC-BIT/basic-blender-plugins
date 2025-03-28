@@ -78,4 +78,10 @@ Check out the documentation files in the `docs` folder for detailed information 
 
 ## Credits
 
-Created by BASICBIT 
+Created by BASICBIT
+
+## Random stuff to do
+
+- Make the mirroring vertex functionality move the vertexes to the average center point instead of moving one to the other's mirrored position
+- Fix release script
+- Confirm functionality of mirroring code (both original blendshape mirroring and new vertex mirroring)
