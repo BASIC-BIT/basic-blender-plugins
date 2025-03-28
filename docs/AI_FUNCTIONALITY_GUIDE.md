@@ -15,6 +15,12 @@ This document explains the key functionality and logic flow of the BASICs Shape 
 - Used for controlling armature deformation, modifiers, and other effects
 - Stored in the object's `vertex_groups` collection
 
+### Armatures in Blender
+- Armatures are skeletal structures used to deform meshes
+- Composed of bones organized in parent-child hierarchies
+- Used for character animation, rigging, and deformation
+- Each bone can influence mesh vertices through vertex groups
+
 ## Functionality Groups
 
 ### 1. Basic Shape Key Operations
@@ -92,6 +98,47 @@ This document explains the key functionality and logic flow of the BASICs Shape 
    - Creates new vertex group with combined weights
    - Optionally normalizes weights to stay within 0.0-1.0 range
 
+**Remove Empty Groups Workflow**:
+1. User selects mesh object(s) or an armature
+2. If a mesh is selected: processes that mesh
+3. If an armature is selected: processes all mesh children
+4. For each mesh, the operator:
+   - Examines all vertex groups
+   - Identifies groups with no vertices or zero weights
+   - Removes these empty groups
+   - Reports how many empty groups were removed from how many objects
+5. This helps clean up rigs by removing unused vertex groups that can accumulate during rigging
+
+### 7. Armature Operations
+
+**Delete Other Bones Workflow**:
+1. User selects an armature object and enters Edit Mode
+2. User selects one or more bones to preserve
+3. The Delete Other Bones operator:
+   - Collects the selected bones to preserve
+   - Identifies and preserves all parent bones up the chain to maintain hierarchy
+   - Optionally preserves all child bones of selected bones (enabled by default)
+   - Deletes all other bones in the armature
+4. This is particularly useful for:
+   - Extracting specific parts of a character (like hair) with their bone structure
+   - Simplifying complex rigs by removing unnecessary bones
+   - Creating focused sub-rigs for specific animations or components
+
+**Check/Fix Armature Modifiers Workflow**:
+1. User selects an armature
+2. The Check/Fix Armature Modifiers operator:
+   - Identifies all mesh objects parented to the armature
+   - For each mesh:
+     - Checks if it has exactly one armature modifier pointing to the correct armature
+     - If not, removes all existing armature modifiers
+     - Adds a new armature modifier configured correctly
+     - Ensures the modifier is at the top of the modifier stack for best results
+3. This ensures all meshes deform properly with the armature
+4. Useful when:
+   - Importing models with incorrect modifier setups
+   - After joining or separating meshes that may have duplicate or missing modifiers
+   - For batch fixing multiple character meshes at once
+
 ## Logic Diagram
 
 ```
@@ -130,6 +177,34 @@ User selects objects → Clicks Transfer → SHAPEKEY_OT_transfer_with_surface_d
 Adds Surface Deform modifier → Binds to source → 
 For each shape key: Activate on source → Capture deformation on target → 
 Create shape key on target → Updates UI
+```
+
+### Armature Bone Deletion Data Flow:
+```
+User selects armature → Enters Edit Mode → Selects bones → 
+Clicks Delete Other Bones → ARMATURE_OT_delete_other_bones.execute() →
+Collects selected bones → Traces parent hierarchy → 
+Recursively adds children (if option enabled) → 
+Identifies bones to preserve → Deletes other bones → Updates UI
+```
+
+### Armature Modifier Check/Fix Data Flow:
+```
+User selects armature → Clicks Check/Fix Armature Modifiers → 
+ARMATURE_OT_check_fix_modifiers.execute() →
+_get_child_meshes() → For each mesh: _check_and_fix_modifiers() →
+[If needed] Remove existing modifiers → Add new modifier → 
+Move modifier to top of stack → Updates UI
+```
+
+### Remove Empty Vertex Groups Data Flow:
+```
+User selects mesh or armature → Clicks Remove Empty Vertex Groups → 
+VERTEXGROUP_OT_remove_empty.execute() →
+[If armature selected] Collect child meshes → 
+For each mesh: _remove_empty_groups() →
+Check each vertex group for vertices with weight > 0 →
+Remove empty groups → Updates UI
 ```
 
 ## Common Utility Functions
@@ -185,4 +260,4 @@ These workflows utilize the same packaging script (`scripts/package_addon.py`) t
 
 - Octree is used for efficient spatial searching during mirroring
 - Shape key transfer can be slow for complex meshes
-- The addon provides options to skip shape keys with minimal effect to improve performance 
+- The addon provides options to skip shape keys with minimal effect to improve performance

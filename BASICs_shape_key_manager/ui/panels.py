@@ -92,6 +92,9 @@ class SHAPEKEY_PT_manager(Panel):
                 row = col.row()
                 row.operator("vertexgroup.combine_groups")
                 
+                row = col.row()
+                row.operator("vertexgroup.remove_empty")
+                
                 # Display number of vertex groups
                 col.label(text=f"Vertex Groups: {len(obj.vertex_groups)}")
             else:
@@ -130,5 +133,32 @@ class SHAPEKEY_PT_manager(Panel):
                         col.operator("shapekey.transfer_with_surface_deform")
                     else:
                         col.label(text="Source has no shape keys")
+        elif obj and obj.type == 'ARMATURE':
+            # Armature Operations section
+            box = layout.box()
+            box.label(text="Armature Operations")
+            
+            col = box.column(align=True)
+            
+            # Check/Fix Armature Modifiers button - always available
+            row = col.row()
+            row.operator("armature.check_fix_modifiers")
+            
+            # Show operator only in edit mode
+            if obj.mode == 'EDIT':
+                col.separator()
+                row = col.row()
+                op = row.operator("armature.delete_other_bones")
+                op.preserve_children = True
+                
+                row = col.row()
+                row.label(text="Select bones to keep, others will be deleted")
+                
+                row = col.row()
+                row.label(text="Parents and children of selected bones are preserved")
+                
+                col.separator()
+            else:
+                col.label(text="Enter Edit Mode to access bone operations")
         else:
-            layout.label(text="Select a mesh object") 
+            layout.label(text="Select a mesh or armature object")

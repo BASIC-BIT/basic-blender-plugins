@@ -13,6 +13,7 @@ __init__.py (main)
 │   ├── mesh_mirror_ops.py: MESH_OT_* classes
 │   ├── transfer_ops.py: SHAPEKEY_OT_* classes
 │   ├── edit_ops.py: SHAPEKEY_OT_* classes
+│   ├── armature_ops.py: ARMATURE_OT_* classes
 │   └── vertex_group_ops.py: VERTEXGROUP_OT_* classes
 └── ui/__init__.py: register()
     └── panels.py: SHAPEKEY_PT_manager class
@@ -30,6 +31,7 @@ __init__.py (main)
 | operators/mesh_mirror_ops.py | bpy, bmesh, mathutils, core/mirror_utils.py | operators/__init__.py |
 | operators/transfer_ops.py | bpy, numpy | operators/__init__.py |
 | operators/edit_ops.py | bpy | operators/__init__.py |
+| operators/armature_ops.py | bpy | operators/__init__.py |
 | operators/vertex_group_ops.py | bpy | operators/__init__.py |
 | ui/panels.py | bpy | ui/__init__.py |
 | utils/properties.py | bpy | __init__.py |
@@ -53,7 +55,7 @@ Scene properties (registered in utils/properties.py)
 └── mesh_mirror_move_center_vertices: Used by MESH_OT_force_mirror
 
 UI Panel (SHAPEKEY_PT_manager)
-├── Displays: Operators via bl_idname (shapekey.*, mesh.*, vertexgroup.*)
+├── Displays: Operators via bl_idname (shapekey.*, mesh.*, armature.*, vertexgroup.*)
 └── Displays: Scene properties
 ```
 
@@ -62,8 +64,18 @@ UI Panel (SHAPEKEY_PT_manager)
 ```
 Mesh Object
 ├── data.shape_keys.key_blocks: Accessed by all shape key operators
-├── data.vertices: Accessed by MESH_OT_force_mirror
-└── vertex_groups: Accessed by VERTEXGROUP_OT_combine_groups and MESH_OT_force_mirror
+├── data.vertices: Accessed by MESH_OT_force_mirror and VERTEXGROUP_OT_remove_empty
+└── vertex_groups: Accessed by VERTEXGROUP_OT_combine_groups, VERTEXGROUP_OT_remove_empty and MESH_OT_force_mirror
+
+Armature Object
+├── data.edit_bones: Accessed by ARMATURE_OT_delete_other_bones
+├── data.edit_bones[].parent: Used to trace bone hierarchy
+├── data.edit_bones[].children: Used to find child bones
+└── parent relationship: Used by ARMATURE_OT_check_fix_modifiers to find child meshes
+
+Mesh Modifiers
+├── armature modifiers: Checked/fixed by ARMATURE_OT_check_fix_modifiers
+└── surface_deform modifier: Used by SHAPEKEY_OT_transfer_with_surface_deform
 
 Shape Keys
 ├── Basis shape key: Referenced by all shape key operators as the reference
@@ -107,6 +119,48 @@ SHAPEKEY_OT_transfer_with_surface_deform.execute()
 └── Restores original state
 ```
 
+**In armature_ops.py:**
+```
+ARMATURE_OT_delete_other_bones.execute()
+├── Get selected bones
+├── For each selected bone:
+│   ├── Add to bones_to_preserve set
+│   ├── Trace parent chain recursively
+│   └── add_children_recursive() (if preserve_children is enabled)
+├── Identify bones to delete
+└── Remove non-preserved bones
+
+ARMATURE_OT_check_fix_modifiers.execute()
+├── _get_child_meshes() → Get all mesh objects parented to armature
+├── For each mesh:
+│   └── _check_and_fix_modifiers()
+│       ├── Check for existing armature modifiers
+│       ├── Remove incorrect modifiers if needed
+│       ├── Add new armature modifier
+│       └── Move modifier to top of stack
+└── Report results
+```
+
+**In vertex_group_ops.py:**
+```
+VERTEXGROUP_OT_combine_groups.execute()
+├── Filter vertex groups based on lock status
+├── Create new vertex group
+├── For each vertex:
+│   ├── Gather weights from selected groups
+│   └── Add to new group with combined weight
+└── Report results
+
+VERTEXGROUP_OT_remove_empty.execute()
+├── Determine objects to process (selected mesh or armature children)
+├── For each mesh:
+│   └── _remove_empty_groups()
+│       ├── Check each vertex group for vertices with weight > 0
+│       ├── Identify empty groups
+│       └── Remove empty groups
+└── Report results
+```
+
 ## Blender API Usage
 
 | Module | Blender API Components Used |
@@ -116,7 +170,8 @@ SHAPEKEY_OT_transfer_with_surface_deform.execute()
 | mesh_mirror_ops.py | bpy.types.Operator, bmesh, mode_set, object.data.vertices, vertex_groups |
 | transfer_ops.py | bpy.types.Operator, shape_keys, modifiers, ops.object.mode_set, view_layer.update, depsgraph |
 | edit_ops.py | bpy.types.Operator, bpy.ops.object.mode_set, shape_keys, key_blocks |
-| vertex_group_ops.py | bpy.types.Operator, vertex_groups, add, weight, report |
+| armature_ops.py | bpy.types.Operator, bpy.props.BoolProperty, object.data.edit_bones, edit_bones.select, edit_bones.parent, edit_bones.children, object.modifiers |
+| vertex_group_ops.py | bpy.types.Operator, vertex_groups, add, weight, report, object.data.vertices |
 | panels.py | bpy.types.Panel, layout, box, column, row, prop, operator |
 | properties.py | bpy.types.Scene, FloatProperty, BoolProperty |
 
@@ -133,6 +188,7 @@ SHAPEKEY_OT_transfer_with_surface_deform.execute()
 | register_properties | utils/properties.py | __init__.py |
 | SHAPEKEY_OT_* classes | operators/*.py | ui/panels.py (via bl_idname) |
 | MESH_OT_* classes | operators/mesh_mirror_ops.py | ui/panels.py (via bl_idname) |
+| ARMATURE_OT_* classes | operators/armature_ops.py | ui/panels.py (via bl_idname) |
 | VERTEXGROUP_OT_* classes | operators/vertex_group_ops.py | ui/panels.py (via bl_idname) |
 
 ## Property References in UI
@@ -160,4 +216,4 @@ The GitHub Actions workflows (in the `.github/workflows` directory) automate the
 
 These workflows rely on the `scripts/package_addon.py` script, which follows the package creation process defined in the packaging tools documentation.
 
-This relationship map should help AI tools understand how the various components of the addon interact with each other. 
+This relationship map should help AI tools understand how the various components of the addon interact with each other.

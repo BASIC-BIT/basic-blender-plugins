@@ -19,6 +19,7 @@ BASICs_shape_key_manager/
 │   ├── mirror_ops.py            # Shape key mirroring functions
 │   ├── mesh_mirror_ops.py       # Mesh mirroring functions
 │   ├── transfer_ops.py          # Shape key transfer between objects
+│   ├── armature_ops.py          # Armature editing operations
 │   └── vertex_group_ops.py      # Vertex group operations
 ├── ui/                          # User interface components
 │   ├── __init__.py              # Registers UI elements
@@ -117,10 +118,23 @@ BASICs_shape_key_manager/
 - **Key Classes**:
   - `SHAPEKEY_OT_remove_selected_vertices`: Removes selected vertices from shape keys
 
+### operators/armature_ops.py
+- **Purpose**: Armature editing operations
+- **Key Classes**:
+  - `ARMATURE_OT_delete_other_bones`: Deletes all bones except selected ones and their hierarchy
+  - `ARMATURE_OT_check_fix_modifiers`: Ensures all meshes parented to an armature have exactly one correctly configured armature modifier
+- **Helper Functions**:
+  - `add_children_recursive()`: Recursively collects child bones to preserve
+  - `_get_child_meshes()`: Gets all mesh objects parented to an armature
+  - `_check_and_fix_modifiers()`: Checks and fixes armature modifiers on a mesh
+
 ### operators/vertex_group_ops.py
 - **Purpose**: Vertex group operations
 - **Key Classes**:
   - `VERTEXGROUP_OT_combine_groups`: Combines multiple vertex groups
+  - `VERTEXGROUP_OT_remove_empty`: Removes empty vertex groups from meshes
+- **Helper Functions**:
+  - `_remove_empty_groups()`: Identifies and removes vertex groups with no weights
 
 ### ui/panels.py
 - **Purpose**: Defines the addon's user interface
@@ -147,4 +161,4 @@ BASICs_shape_key_manager/
 - `scripts/package_addon.py`: Python script for packaging and installing
 - `scripts/package_addon.bat`: Windows batch script interface
 - `scripts/package_addon.sh`: Shell script interface for macOS/Linux
-- `scripts/PACKAGING_README.md`: Documentation for the packaging tools 
+- `scripts/PACKAGING_README.md`: Documentation for the packaging tools

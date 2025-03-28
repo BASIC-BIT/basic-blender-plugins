@@ -100,4 +100,107 @@ class VERTEXGROUP_OT_combine_groups(Operator):
         layout.prop(self, "new_group_name")
         layout.prop(self, "include_locked")
         layout.prop(self, "include_unlocked")
-        layout.prop(self, "normalize_weights") 
+        layout.prop(self, "normalize_weights")
+
+
+class VERTEXGROUP_OT_remove_empty(Operator):
+    """Remove all empty vertex groups (with no vertices or zero weights) from selected meshes"""
+    bl_idname = "vertexgroup.remove_empty"
+    bl_label = "Remove Empty Vertex Groups"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and (obj.type == 'MESH' or obj.type == 'ARMATURE')
+    
+    def execute(self, context):
+        active_obj = context.active_object
+        objects_to_process = []
+        
+        # Determine which objects to process
+        if active_obj.type == 'ARMATURE':
+            # Process all mesh children of the armature
+            for obj in bpy.data.objects:
+                if obj.type == 'MESH' and obj.parent == active_obj:
+                    objects_to_process.append(obj)
+            if not objects_to_process:
+                self.report({'WARNING'}, "No mesh objects are parented to this armature")
+                return {'CANCELLED'}
+        else:
+            # Process all selected mesh objects
+            for obj in context.selected_objects:
+                if obj.type == 'MESH':
+                    objects_to_process.append(obj)
+        
+        if not objects_to_process:
+            self.report({'WARNING'}, "No mesh objects selected")
+            return {'CANCELLED'}
+        
+        total_removed = 0
+        processed_objects = 0
+        
+        # Process each object
+        for obj in objects_to_process:
+            if not obj.vertex_groups:
+                continue
+                
+            removed_count = self._remove_empty_groups(obj)
+            
+            if removed_count > 0:
+                processed_objects += 1
+                total_removed += removed_count
+        
+        # Report results
+        if total_removed > 0:
+            self.report({'INFO'}, f"Removed {total_removed} empty vertex groups from {processed_objects} objects")
+        else:
+            self.report({'INFO'}, "No empty vertex groups found")
+            
+        return {'FINISHED'}
+    
+    def _remove_empty_groups(self, obj):
+        """Remove empty vertex groups from an object and return count of removed groups"""
+        # Get count of vertices in mesh
+        vertex_count = len(obj.data.vertices)
+        empty_groups = []
+        
+        # First pass: identify empty groups
+        for group in obj.vertex_groups:
+            # Check if this vertex group has any vertices with weight > 0
+            has_vertices = False
+            
+            # Sample approach: check each vertex
+            for v_idx in range(vertex_count):
+                try:
+                    # If we can get weight and it's greater than 0, group is not empty
+                    if group.weight(v_idx) > 0:
+                        has_vertices = True
+                        break
+                except RuntimeError:
+                    # Vertex not in this group
+                    continue
+            
+            if not has_vertices:
+                empty_groups.append(group)
+        
+        # Second pass: remove the empty groups (can't remove while iterating)
+        removed_count = 0
+        for group in empty_groups:
+            obj.vertex_groups.remove(group)
+            removed_count += 1
+            
+        return removed_count
+
+
+# Registration
+def register():
+    bpy.utils.register_class(VERTEXGROUP_OT_combine_groups)
+    bpy.utils.register_class(VERTEXGROUP_OT_remove_empty)
+
+def unregister():
+    bpy.utils.unregister_class(VERTEXGROUP_OT_remove_empty)
+    bpy.utils.unregister_class(VERTEXGROUP_OT_combine_groups)
+
+if __name__ == "__main__":
+    register()
