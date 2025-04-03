@@ -31,6 +31,27 @@ def get_blender_addons_path(blender_version):
     
     return addon_path
 
+def run_encoding_fix():
+    """Run the encoding fix script before packaging."""
+    script_dir = Path(__file__).parent
+    fix_script = script_dir / "fix_encodings.py"
+    
+    if not fix_script.exists():
+        print("Error: fix_encodings.py not found!")
+        return False
+    
+    print("Running encoding fix...")
+    result = subprocess.run([sys.executable, str(fix_script)], capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        print("Error: Encoding fix failed!")
+        print(result.stdout)
+        print(result.stderr)
+        return False
+    
+    print(result.stdout)
+    return True
+
 def create_zip(source_dir, output_file):
     """Create a zip file from a directory."""
     print(f"Creating zip file: {output_file}")
@@ -102,6 +123,7 @@ def main():
     parser.add_argument('--install', action='store_true', help='Install the addon to Blender')
     parser.add_argument('--blender-version', type=str, help='Blender version (e.g., 4.3)')
     parser.add_argument('--blender-exe', type=str, help='Path to Blender executable (optional, for auto-enabling)')
+    parser.add_argument('--skip-encoding-fix', action='store_true', help='Skip the encoding fix step')
     
     args = parser.parse_args()
     
@@ -118,6 +140,12 @@ def main():
     if not source_dir.exists():
         print(f"Error: Source directory not found: {source_dir}")
         return 1
+    
+    # Run encoding fix unless skipped
+    if not args.skip_encoding_fix:
+        if not run_encoding_fix():
+            print("Encoding fix failed. Use --skip-encoding-fix to skip this step.")
+            return 1
     
     # Create the zip file
     zip_file = create_zip(source_dir, output_file)

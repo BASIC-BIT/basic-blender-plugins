@@ -38,7 +38,10 @@ class SHAPEKEY_PT_manager(Panel):
                 
                 # Add mirror tolerance setting
                 row = col.row()
-                row.prop(context.scene, "shapekey_mirror_tolerance", slider=True)
+                if hasattr(context.scene, "shapekey_mirror_tolerance"):
+                    row.prop(context.scene, "shapekey_mirror_tolerance", slider=True)
+                else:
+                    row.label(text="Mirror Tolerance: Not Available")
                 
                 # Add the remove selected vertices operator (only in edit mode)
                 if obj.mode == 'EDIT':
@@ -68,9 +71,15 @@ class SHAPEKEY_PT_manager(Panel):
             row.operator("mesh.force_mirror")
             
             # Additional UI for advanced mesh settings
-            if context.scene.get("mesh_mirror_show_advanced", False):
+            if hasattr(context.scene, "mesh_mirror_show_advanced"):
+                show_advanced = context.scene.mesh_mirror_show_advanced
+            else:
+                show_advanced = False
+                
+            if show_advanced:
                 row = col.row()
-                row.prop(context.scene, "mesh_mirror_show_advanced", toggle=True, text="Hide Advanced")
+                if hasattr(context.scene, "mesh_mirror_show_advanced"):
+                    row.prop(context.scene, "mesh_mirror_show_advanced", toggle=True, text="Hide Advanced")
                 
                 # Show advanced options if we have them defined
                 if hasattr(context.scene, "mesh_mirror_center_tolerance"):
@@ -81,7 +90,8 @@ class SHAPEKEY_PT_manager(Panel):
                     row.prop(context.scene, "mesh_mirror_move_center_vertices")
             else:
                 row = col.row()
-                row.prop(context.scene, "mesh_mirror_show_advanced", toggle=True, text="Show Advanced")
+                if hasattr(context.scene, "mesh_mirror_show_advanced"):
+                    row.prop(context.scene, "mesh_mirror_show_advanced", toggle=True, text="Show Advanced")
             
             # Vertex Group operations section
             box = layout.box()
@@ -110,20 +120,35 @@ class SHAPEKEY_PT_manager(Panel):
             else:
                 sources = [o for o in context.selected_objects if o != obj and o.type == 'MESH']
                 if sources:
-                    source_names = ", ".join([s.name for s in sources[:3]])
+                    # Safely get source names, handling objects that might not have a name attribute
+                    source_names_list = []
+                    for s in sources[:3]:
+                        if hasattr(s, 'name') and s.name:
+                            source_names_list.append(s.name)
+                        else:
+                            source_names_list.append("Unnamed")
+                    
+                    source_names = ", ".join(source_names_list)
                     if len(sources) > 3:
                         source_names += f" and {len(sources) - 3} more"
                     box.label(text=f"Source: {source_names}")
-                    box.label(text=f"Target: {obj.name} (active)")
-                    
+                    if obj and hasattr(obj, 'name') and obj.name:
+                        box.label(text=f"Target: {obj.name} (active)")
+                    else:
+                        box.label(text="Target: (active)")
                     # Show transfer settings in the panel
                     col = box.column(align=True)
-                    col.prop(context.scene, "shapekey_transfer_strength", slider=True)
-                    col.prop(context.scene, "shapekey_transfer_clear_existing")
-                    col.prop(context.scene, "shapekey_transfer_skip_minimal")
+                    if hasattr(context.scene, "shapekey_transfer_strength"):
+                        col.prop(context.scene, "shapekey_transfer_strength", slider=True)
+                    if hasattr(context.scene, "shapekey_transfer_clear_existing"):
+                        col.prop(context.scene, "shapekey_transfer_clear_existing")
+                    if hasattr(context.scene, "shapekey_transfer_skip_minimal"):
+                        col.prop(context.scene, "shapekey_transfer_skip_minimal")
                     
                     # Only show threshold if skip_minimal_effect is enabled
-                    if context.scene.shapekey_transfer_skip_minimal:
+                    if (hasattr(context.scene, "shapekey_transfer_skip_minimal") and 
+                        context.scene.shapekey_transfer_skip_minimal and
+                        hasattr(context.scene, "shapekey_transfer_threshold")):
                         col.prop(context.scene, "shapekey_transfer_threshold", slider=True)
                     
                     # Transfer button

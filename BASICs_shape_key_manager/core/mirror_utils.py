@@ -105,7 +105,7 @@ def build_mirror_vertex_mapping(mesh_or_basis_key):
     # Group vertices by their X sign (left/right of the center)
     left_vertices = []  # X < 0
     right_vertices = []  # X > 0
-    center_vertices = []  # X ≈ 0
+    center_vertices = []  # X ~ 0
     
     # Small threshold for center vertices
     center_threshold = 0.0001
