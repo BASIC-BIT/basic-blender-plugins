@@ -1,0 +1,29 @@
+schema_version = "1.0.0"
+
+id = "basics_shape_key_manager"
+version = "1.1.0"
+name = "BASICs Shape Key Manager"
+tagline = "Copy, cut, paste and mirror shape keys between objects"
+maintainer = "BASICBIT"
+type = "add-on"
+
+website = "https://github.com/BASICBIT/BASICs_shape_key_manager"
+
+tags = ["Mesh", "Modeling", "Shape Keys"]
+
+blender_version_min = "4.3.0"
+
+license = [
+    "SPDX:GPL-3.0-or-later",
+]
+
+[permissions]
+clipboard = "Copy and paste shape key data between objects"
+files = "Save and load shape key presets"
+
+[build]
+paths_exclude_pattern = [
+    "__pycache__/",
+    "/.git/",
+    "/*.zip",
+]

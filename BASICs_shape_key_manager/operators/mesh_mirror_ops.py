@@ -63,6 +63,10 @@ def create_failed_vertex_group(obj, failed_vertices):
     """Create a vertex group containing vertices that couldn't be mirrored"""
     group_name = "Mirror_Failed_Vertices"
     
+    # Ensure the object has vertex groups
+    if not hasattr(obj, 'vertex_groups'):
+        return None
+    
     # Remove existing group if it exists
     if group_name in obj.vertex_groups:
         vg = obj.vertex_groups[group_name]
@@ -70,11 +74,16 @@ def create_failed_vertex_group(obj, failed_vertices):
     
     # Only create if we have failed vertices
     if failed_vertices:
-        # Create new group
-        vg = obj.vertex_groups.new(name=group_name)
-        for v_idx in failed_vertices:
-            vg.add([v_idx], 1.0, 'REPLACE')
-        return vg
+        try:
+            # Create new group
+            vg = obj.vertex_groups.new(name=group_name)
+            if vg is not None:  # Add null check
+                for v_idx in failed_vertices:
+                    vg.add([v_idx], 1.0, 'REPLACE')
+                return vg
+        except Exception as e:
+            print(f"Error creating vertex group: {e}")
+            return None
     
     return None
 
@@ -188,11 +197,13 @@ class MESH_OT_force_mirror(Operator):
         
         # Create detailed vertex mapping using common function
         source_vertices, target_vertices, mirror_map, reverse_map = create_vertex_mirror_mapping(
-            mesh, from_side, left_vertices, right_vertices, center_vertices, tolerance)
+            mesh, from_side, left_vertices, right_vertices, center_vertices, tolerance
+        )
         
         # Handle center vertices
         center_modified, near_center_verts = handle_center_vertices(
-            mesh, center_vertices, self.move_to_center, self.center_tolerance)
+            mesh, center_vertices, self.move_to_center, self.center_tolerance
+        )
         
         # Process different cases based on mode
         if original_mode == 'EDIT':
@@ -240,7 +251,10 @@ class MESH_OT_force_mirror(Operator):
         # Create a vertex group for failed vertices if requested
         if self.create_failed_group and failed_vertices:
             vg = create_failed_vertex_group(obj, failed_vertices)
-            self.report({'WARNING'}, f"Created vertex group '{vg.name}' with {len(failed_vertices)} vertices that could not be mirrored")
+            if vg is not None:  # Add null check
+                self.report({'WARNING'}, f"Created vertex group '{vg.name}' with {len(failed_vertices)} vertices that could not be mirrored")
+            else:
+                self.report({'WARNING'}, f"Failed to create vertex group for {len(failed_vertices)} vertices that could not be mirrored")
         
         # Restore original mode
         bpy.ops.object.mode_set(mode=original_mode)
