@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import FloatProperty, BoolProperty
+from bpy.props import FloatProperty, BoolProperty, StringProperty
 
 # Define scene properties for persistent settings
 def register_properties():
@@ -32,6 +32,13 @@ def register_properties():
         precision=4
     )
     
+    # Protected vertex group prefixes for weight/shape key transfer
+    bpy.types.Scene.weight_transfer_protected_prefixes = StringProperty(
+        name="Protected Prefixes",
+        description="Comma-separated, case-insensitive vertex group name prefixes that are never overwritten by weight or shape key transfer (PhysBone/dynamics chains). Locked vertex groups are always protected",
+        default="Boob,Breast,Butt,Tail,Skirt,Ear,Hair"
+    )
+
     # Mirror shape key properties
     bpy.types.Scene.shapekey_mirror_tolerance = FloatProperty(
         name="Mirror Tolerance",
@@ -69,6 +76,7 @@ def unregister_properties():
     del bpy.types.Scene.shapekey_transfer_clear_existing
     del bpy.types.Scene.shapekey_transfer_skip_minimal
     del bpy.types.Scene.shapekey_transfer_threshold
+    del bpy.types.Scene.weight_transfer_protected_prefixes
     del bpy.types.Scene.shapekey_mirror_tolerance
     del bpy.types.Scene.mesh_mirror_show_advanced
     del bpy.types.Scene.mesh_mirror_center_tolerance

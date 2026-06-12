@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BASICs Shape Key Manager",
     "author": "BASICBIT",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (4, 3, 0),
     "location": "View3D > Sidebar > Shape Keys",
     "description": "Copy, cut, paste and mirror shape keys between objects",

@@ -42,6 +42,11 @@ class SHAPEKEY_PT_manager(Panel):
                     row.prop(context.scene, "shapekey_mirror_tolerance", slider=True)
                 else:
                     row.label(text="Mirror Tolerance: Not Available")
+
+                # Heuristic artifact smoothing for the active non-basis shape key
+                if obj.active_shape_key_index > 0:
+                    row = col.row()
+                    row.operator("shapekey.heuristic_smooth")
                 
                 # Add the remove selected vertices operator (only in edit mode)
                 if obj.mode == 'EDIT':
@@ -96,19 +101,28 @@ class SHAPEKEY_PT_manager(Panel):
             # Vertex Group operations section
             box = layout.box()
             box.label(text="Vertex Group Operations")
-            
+
+            col = box.column(align=True)
+            # Weight transfer works even when the target has no vertex groups yet
+            row = col.row()
+            row.operator("vertexgroup.robust_weight_transfer")
+
+            if hasattr(context.scene, "weight_transfer_protected_prefixes"):
+                row = col.row()
+                row.prop(context.scene, "weight_transfer_protected_prefixes", text="Protected")
+
             if len(obj.vertex_groups) > 0:
-                col = box.column(align=True)
+                col.separator()
                 row = col.row()
                 row.operator("vertexgroup.combine_groups")
-                
+
                 row = col.row()
                 row.operator("vertexgroup.remove_empty")
-                
+
                 # Display number of vertex groups
                 col.label(text=f"Vertex Groups: {len(obj.vertex_groups)}")
             else:
-                box.label(text="No Vertex Groups on selected object")
+                col.label(text="No Vertex Groups on selected object")
             
             # Advanced shape key operations section
             box = layout.box()

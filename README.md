@@ -9,6 +9,8 @@ A powerful Blender addon that makes working with shape keys easy and efficient.
 - **Copy, cut, and paste** shape key values between objects
 - **Mirror** shape keys from one side to another (L to R or R to L)
 - **Transfer** shape keys between completely different meshes
+- **Transfer weights** from a body to clothing while protected vertex groups (PhysBone/dynamics chains, locked groups) are preserved exactly
+- **Smooth transfer artifacts** on shape keys with neighborhood-based heuristic detection (with a preview mode)
 - **Remove** shape key influence from selected vertices
 - **Combine** vertex groups into new ones
 - **Save and load** shape keys to/from files
@@ -54,6 +56,53 @@ The addon adds a "BASIC" tab in the 3D View sidebar (press N to show/hide).
 2. Hold Shift and select the target mesh (so it's active)
 3. Adjust transfer settings in the panel
 4. Click "Execute Transfer"
+
+Protected vertex groups on the target survive the transfer: groups with
+locked weights and groups matching the "Protected" name prefixes
+(default: `Boob,Breast,Butt,Tail,Skirt,Ear,Hair`) are snapshotted before
+the internal vertex group clear and restored bit-for-bit afterwards, so
+PhysBone/dynamics weight painting is no longer destroyed. (Earlier
+versions deleted ALL target vertex groups for Surface Deform binding;
+non-protected groups are still cleared — re-transfer them with the
+weight transfer below.)
+
+### Robust Weight Transfer (Protected Groups)
+
+Transfer body weights onto a clothing mesh without clobbering PhysBone
+weight painting:
+
+1. Select the source body mesh (with vertex groups)
+2. Hold Shift and select the target clothing mesh (so it's active)
+3. In the "Vertex Group Operations" section, adjust the "Protected"
+   prefix list if needed (comma-separated, case-insensitive name
+   prefixes; locked vertex groups are always protected)
+4. Click "Robust Weight Transfer (Protected Groups)" and pick the
+   options: vertex mapping (nearest-face-interpolated by default), max
+   distance (0.05 by default), and the per-vertex influence cap (4 by
+   default, matching VRChat/FBX limits)
+
+Protected groups are snapshotted, the transfer runs, then the protected
+groups are restored exactly and the remaining weights are renormalized
+around them (lock-aware normalize: protected weights stay untouched,
+unprotected weights are scaled to fill the remaining budget). The report
+includes group, vertex, and renormalization counts.
+
+### Heuristic Blendshape Smoothing
+
+Clean up pinching/stretching artifacts after a shape key transfer
+(the classic chest-area pinch):
+
+1. Select the mesh and make the transferred shape key active
+2. In "Basic Operations", click "Heuristic Blendshape Smoothing"
+3. Enable "Preview Only" first: the operator flags artifact vertices by
+   comparing each vertex's shape key delta against its 1-ring and 2-ring
+   neighbors (local mean + k * stddev outlier test, with extra weight on
+   direction divergence) and selects them in Edit Mode for inspection
+4. Run again with preview off to smooth only the flagged vertices toward
+   their neighborhood mean (default 2 iterations at 0.6 strength);
+   unflagged vertices are never modified
+5. On X-symmetric meshes the fix is applied symmetrically so left/right
+   errors cancel instead of multiplying along the center seam
 
 ### Save Your Work
 
