@@ -9,7 +9,7 @@ A powerful Blender addon that makes working with shape keys easy and efficient.
 - **Copy, cut, and paste** shape key values between objects
 - **Mirror** shape keys from one side to another (L to R or R to L)
 - **Transfer** shape keys between completely different meshes
-- **Transfer weights** from a body to clothing while protected vertex groups (PhysBone/dynamics chains, locked groups) are preserved exactly
+- **Transfer weights** from a body to clothing while the outfit's own vertex groups (dynamics chains not present on the body, locked groups) are preserved exactly
 - **Smooth transfer artifacts** on shape keys with neighborhood-based heuristic detection (with a preview mode)
 - **Remove** shape key influence from selected vertices
 - **Combine** vertex groups into new ones
@@ -57,29 +57,42 @@ The addon adds a "BASIC" tab in the 3D View sidebar (press N to show/hide).
 3. Adjust transfer settings in the panel
 4. Click "Execute Transfer"
 
-Protected vertex groups on the target survive the transfer: groups with
-locked weights and groups matching the "Protected" name prefixes
-(default: `Boob,Breast,Butt,Tail,Skirt,Ear,Hair`) are snapshotted before
-the internal vertex group clear and restored bit-for-bit afterwards, so
-PhysBone/dynamics weight painting is no longer destroyed. (Earlier
-versions deleted ALL target vertex groups for Surface Deform binding;
+Protected vertex groups on the target survive the transfer
+automatically: any group whose name does not exist on the source mesh
+(the outfit's own PhysBone/dynamics chains — feathers, bows, straps),
+any group with locked weights, and any group matching the optional
+"Keep Existing" prefixes are snapshotted before the internal vertex
+group clear and restored bit-for-bit afterwards, so the outfit's
+dynamics weight painting is no longer destroyed. (Earlier versions
+deleted ALL target vertex groups for Surface Deform binding;
 non-protected groups are still cleared — re-transfer them with the
 weight transfer below.)
 
 ### Robust Weight Transfer (Protected Groups)
 
-Transfer body weights onto a clothing mesh without clobbering PhysBone
-weight painting:
+Transfer body weights onto a clothing mesh without clobbering the
+outfit's own dynamics weight painting:
 
 1. Select the source body mesh (with vertex groups)
 2. Hold Shift and select the target clothing mesh (so it's active)
-3. In the "Vertex Group Operations" section, adjust the "Protected"
-   prefix list if needed (comma-separated, case-insensitive name
-   prefixes; locked vertex groups are always protected)
-4. Click "Robust Weight Transfer (Protected Groups)" and pick the
+3. Click "Robust Weight Transfer (Protected Groups)" and pick the
    options: vertex mapping (nearest-face-interpolated by default), max
    distance (0.05 by default), and the per-vertex influence cap (4 by
    default, matching VRChat/FBX limits)
+
+Protection is automatic — no configuration needed:
+
+1. Any target vertex group whose name does NOT exist on the source body
+   mesh is protected. These are the outfit's own PhysBone/dynamics
+   chains (feathers, bows, straps): the transfer can't write them, and
+   without protection the influence cap and renormalization would
+   destroy or rescale them.
+2. Any vertex group with locked weights (`lock_weight`) is protected.
+3. Optional override: the "Keep Existing" prefix list (empty by
+   default; comma-separated, case-insensitive name prefixes) protects
+   groups even though they exist on BOTH meshes — use it when the
+   outfit has hand-tuned weights you want kept instead of the body's,
+   e.g. `Boob,Breast` jiggle weights.
 
 Protected groups are snapshotted, the transfer runs, then the protected
 groups are restored exactly and the remaining weights are renormalized

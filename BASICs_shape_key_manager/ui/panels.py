@@ -107,9 +107,9 @@ class SHAPEKEY_PT_manager(Panel):
             row = col.row()
             row.operator("vertexgroup.robust_weight_transfer")
 
-            if hasattr(context.scene, "weight_transfer_protected_prefixes"):
+            if hasattr(context.scene, "weight_transfer_keep_existing_prefixes"):
                 row = col.row()
-                row.prop(context.scene, "weight_transfer_protected_prefixes", text="Protected")
+                row.prop(context.scene, "weight_transfer_keep_existing_prefixes", text="Keep Existing")
 
             if len(obj.vertex_groups) > 0:
                 col.separator()

@@ -3,7 +3,7 @@ import numpy as np
 from bpy.types import Operator
 from ..core.vertex_group_utils import (
     collect_protected_group_names,
-    parse_protected_prefixes,
+    parse_prefix_list,
     snapshot_vertex_groups,
     restore_vertex_groups,
 )
@@ -110,13 +110,20 @@ class SHAPEKEY_OT_transfer_with_surface_deform(Operator):
         surface_deform.target = source
         surface_deform.show_viewport = True
         
-        # Snapshot protected vertex groups (locked groups + PhysBone/dynamics
-        # name prefixes) before the destructive clear below, so the transfer
-        # can no longer destroy PhysBone weight painting on the target
-        protected_prefixes = parse_protected_prefixes(
-            getattr(context.scene, "weight_transfer_protected_prefixes", ""))
+        # Snapshot protected vertex groups before the destructive clear below,
+        # so the transfer can no longer destroy the outfit's own PhysBone/
+        # dynamics weight painting on the target. Protected, in order:
+        # 1. AUTOMATIC: target groups whose names don't exist on the source
+        #    (the outfit's own dynamics chains: feathers, bows, straps)
+        # 2. AUTOMATIC: lock_weight groups
+        # 3. OVERRIDE: keep-existing prefixes (groups on both meshes the
+        #    user wants kept, e.g. hand-tuned Boob jiggle weights)
+        source_group_names = {vg.name for vg in source.vertex_groups}
+        keep_prefixes = parse_prefix_list(
+            getattr(context.scene, "weight_transfer_keep_existing_prefixes", ""))
         protected_names = collect_protected_group_names(
-            target, respect_lock_weight=True, prefixes=protected_prefixes)
+            target, source_group_names=source_group_names,
+            respect_lock_weight=True, keep_existing_prefixes=keep_prefixes)
         protected_snapshot = snapshot_vertex_groups(target, protected_names)
 
         # Make sure all vertex groups are cleared to avoid binding issues

@@ -3,7 +3,7 @@ from bpy.types import Operator
 from bpy.props import StringProperty, BoolProperty, EnumProperty, FloatProperty, IntProperty
 from ..core.vertex_group_utils import (
     collect_protected_group_names,
-    parse_protected_prefixes,
+    parse_prefix_list,
     snapshot_vertex_groups,
     restore_vertex_groups,
     compute_snapshot_drift,
@@ -203,7 +203,7 @@ class VERTEXGROUP_OT_remove_empty(Operator):
 
 
 class VERTEXGROUP_OT_robust_weight_transfer(Operator):
-    """Transfer weights from a source body mesh to the active clothing mesh while protected vertex groups (locked groups and PhysBone/dynamics name prefixes) are preserved exactly"""
+    """Transfer weights from a source body mesh to the active clothing mesh while protected vertex groups are preserved exactly (automatic: the outfit's own groups not present on the source, plus locked groups; optional: keep-existing prefix overrides)"""
     bl_idname = "vertexgroup.robust_weight_transfer"
     bl_label = "Robust Weight Transfer (Protected Groups)"
     bl_options = {'REGISTER', 'UNDO'}
@@ -285,14 +285,29 @@ class VERTEXGROUP_OT_robust_weight_transfer(Operator):
 
         source = sources[0]  # Use the first valid source
 
-        # (a) Collect the protected vertex group set on the target:
-        # lock_weight groups + user-editable name prefixes (PhysBone/dynamics chains)
-        prefixes = parse_protected_prefixes(
-            getattr(context.scene, "weight_transfer_protected_prefixes", ""))
-        protected_names = collect_protected_group_names(
-            target, respect_lock_weight=self.respect_lock_weight, prefixes=prefixes)
+        # (a) Determine the set of group names the transfer can actually
+        # write: every source group, optionally filtered to deform bones
+        source_group_names = {vg.name for vg in source.vertex_groups}
+        if self.only_bone_deform:
+            armature = source.find_armature()
+            if armature is not None:
+                deform_bones = {b.name for b in armature.data.bones if b.use_deform}
+                source_group_names &= deform_bones
 
-        # (b) Snapshot the protected groups before anything destructive happens
+        # (b) Collect the protected vertex group set on the target, in order:
+        # 1. AUTOMATIC: target groups not in the transfer set (the outfit's
+        #    own PhysBone/dynamics chains: feathers, bows, straps)
+        # 2. AUTOMATIC: lock_weight groups
+        # 3. OVERRIDE: keep-existing prefixes — groups on BOTH meshes the
+        #    user wants kept (e.g. hand-tuned Boob jiggle weights)
+        keep_prefixes = parse_prefix_list(
+            getattr(context.scene, "weight_transfer_keep_existing_prefixes", ""))
+        protected_names = collect_protected_group_names(
+            target, source_group_names=source_group_names,
+            respect_lock_weight=self.respect_lock_weight,
+            keep_existing_prefixes=keep_prefixes)
+
+        # (c) Snapshot the protected groups before anything destructive happens
         snapshot = snapshot_vertex_groups(target, protected_names)
 
         # We need to be in object mode for the data transfer
@@ -314,8 +329,8 @@ class VERTEXGROUP_OT_robust_weight_transfer(Operator):
         # Force a scene update before transferring
         context.view_layer.update()
 
-        # (c) Weight transfer source -> target. Protected names may be
-        # transiently overwritten here; step (d) restores them verbatim, so
+        # (d) Weight transfer source -> target. Protected names may be
+        # transiently overwritten here; step (e) restores them verbatim, so
         # the net effect is a transfer of the non-protected groups only.
         layers_src = 'BONE_DEFORM' if self.only_bone_deform else 'ALL'
         transfer_args = dict(
@@ -371,19 +386,19 @@ class VERTEXGROUP_OT_robust_weight_transfer(Operator):
                 bpy.ops.object.mode_set(mode=original_mode)
             return {'CANCELLED'}
 
-        # (d) Restore protected groups verbatim (weights + lock flags)
+        # (e) Restore protected groups verbatim (weights + lock flags)
         restore_vertex_groups(target, snapshot)
         drift = compute_snapshot_drift(target, snapshot) if snapshot else 0.0
 
         # Influence cap (never prunes protected groups), then
-        # (e) lock-aware renormalize: scale only unprotected weights so vertex
+        # (f) lock-aware renormalize: scale only unprotected weights so vertex
         # totals reach 1.0 while protected weights stay exact
         pruned_vertices = set()
         if self.limit_influences:
             pruned_vertices = limit_vertex_influences(target, protected_names, self.max_influences)
         rescaled, unfillable = lock_aware_renormalize(target, protected_names, pruned_vertices)
 
-        # (f) Report counts
+        # (g) Report counts
         protected_indices = {vg.index for vg in target.vertex_groups if vg.name in protected_names}
         verts_touched = 0
         unweighted = 0
@@ -418,8 +433,8 @@ class VERTEXGROUP_OT_robust_weight_transfer(Operator):
         layout.prop(self, "vert_mapping")
         layout.prop(self, "only_bone_deform")
         layout.prop(self, "respect_lock_weight")
-        if hasattr(context.scene, "weight_transfer_protected_prefixes"):
-            layout.prop(context.scene, "weight_transfer_protected_prefixes")
+        if hasattr(context.scene, "weight_transfer_keep_existing_prefixes"):
+            layout.prop(context.scene, "weight_transfer_keep_existing_prefixes")
         layout.prop(self, "use_max_distance")
         if self.use_max_distance:
             layout.prop(self, "max_distance")

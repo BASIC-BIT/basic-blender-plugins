@@ -7,7 +7,7 @@ A Blender addon for managing shape keys (blend shapes), offering the following f
 - **Basic Operations**: Copy, cut, and paste shape key values between objects
 - **Mirroring**: Mirror shape keys from one side of a mesh to another (L/R)
 - **Transfer**: Transfer shape keys between meshes using Blender's Surface Deform modifier (protected vertex groups survive the transfer)
-- **Weight Transfer**: Robust weight transfer that preserves protected vertex groups (locked groups + PhysBone/dynamics name prefixes) exactly, with lock-aware renormalization and an influence cap
+- **Weight Transfer**: Robust weight transfer that automatically preserves the outfit's own vertex groups (groups not present on the source body, locked groups, plus optional keep-existing prefix overrides) exactly, with lock-aware renormalization and an influence cap
 - **Heuristic Smoothing**: Detect and smooth pinching/stretching artifacts on shape keys using 1-ring/2-ring neighborhood statistics, with an Edit Mode preview of flagged vertices
 - **Edit Mode Operations**: Remove selected vertices from shape keys
 - **Vertex Groups**: Combine vertex groups with advanced options

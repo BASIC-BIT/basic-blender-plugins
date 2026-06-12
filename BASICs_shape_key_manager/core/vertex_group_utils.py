@@ -1,39 +1,62 @@
 """
 Vertex group protection utilities shared by the transfer operators.
 
-These helpers implement the snapshot/restore pattern that keeps
-PhysBone/dynamics vertex groups (and any locked vertex group) intact
-across destructive operations such as the Surface Deform shape key
-transfer's vertex group clear and full weight transfers.
+These helpers implement the snapshot/restore pattern that keeps the
+outfit's own dynamics vertex groups (and any locked vertex group)
+intact across destructive operations such as the Surface Deform shape
+key transfer's vertex group clear and full weight transfers.
 
-Protected group collection rules:
-- Any vertex group with ``lock_weight`` set (Blender's weight lock) is
-  protected. This reuses the addon's existing lock convention from
-  the Combine Vertex Groups operator.
-- Any vertex group whose name starts with one of the user-configured,
-  case-insensitive prefixes (scene property
-  ``weight_transfer_protected_prefixes``) is protected. These are
-  typically dynamics chains the body armature does not own
-  (PhysBones): Boob, Tail, Skirt, Ear, Hair, etc.
+Protected group collection rules, in order:
+1. PRIMARY (automatic): any target vertex group whose name does not
+   exist on the source body mesh — equivalently, not in the set being
+   transferred. These are the outfit's own PhysBone/dynamics chains
+   (feathers, bows, straps). data_transfer can only write
+   source-existing layers, but pre-clears, influence capping, and
+   renormalization would otherwise destroy or rescale them.
+2. SECONDARY (automatic): any vertex group with ``lock_weight`` set
+   (Blender's weight lock). This reuses the addon's existing lock
+   convention from the Combine Vertex Groups operator.
+3. OPTIONAL OVERRIDE: any vertex group whose name starts with one of
+   the user-configured, case-insensitive prefixes (scene property
+   ``weight_transfer_keep_existing_prefixes``, default empty). This
+   protects groups even though they exist on both source and target —
+   e.g. Boob/Breast bones where the outfit has hand-tuned jiggle
+   weights the user wants kept instead of the body's weights.
 """
 
 
-def parse_protected_prefixes(prefix_string):
+def parse_prefix_list(prefix_string):
     """Parse a comma-separated prefix string into a tuple of lowercase prefixes."""
     if not prefix_string:
         return ()
     return tuple(p.strip().lower() for p in prefix_string.split(',') if p.strip())
 
 
-def collect_protected_group_names(obj, respect_lock_weight=True, prefixes=()):
-    """Return the set of vertex group names on obj that must never be modified."""
+def collect_protected_group_names(obj, source_group_names=None,
+                                  respect_lock_weight=True,
+                                  keep_existing_prefixes=()):
+    """Return the set of vertex group names on obj that must never be modified.
+
+    Rules are applied in this order (first match wins, result is a union):
+    1. ``source_group_names`` is the set of group names being transferred
+       from the source mesh. Any group on ``obj`` not in that set is
+       protected automatically (the outfit's own dynamics chains).
+       Pass ``None`` to skip this rule (no transfer source in play).
+    2. ``lock_weight`` groups are protected when ``respect_lock_weight``.
+    3. ``keep_existing_prefixes`` protects groups that DO exist on the
+       source as well — an explicit "keep the outfit's hand-tuned
+       weights" override (case-insensitive name prefixes).
+    """
     protected = set()
     for vg in obj.vertex_groups:
+        if source_group_names is not None and vg.name not in source_group_names:
+            protected.add(vg.name)
+            continue
         if respect_lock_weight and vg.lock_weight:
             protected.add(vg.name)
             continue
         name_lower = vg.name.lower()
-        for prefix in prefixes:
+        for prefix in keep_existing_prefixes:
             if name_lower.startswith(prefix):
                 protected.add(vg.name)
                 break
