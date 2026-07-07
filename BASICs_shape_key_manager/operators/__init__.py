@@ -19,8 +19,16 @@ from .vertex_group_ops import (
     VERTEXGROUP_OT_robust_weight_transfer
 )
 from .mesh_mirror_ops import MESH_OT_force_mirror
+from .mesh_select_ops import MESH_OT_select_nearby_vertices
+from .polyloop_ops import (
+    MESH_OT_preview_polyloop_reduction,
+    MESH_OT_dissolve_polyloop_candidate,
+    MESH_OT_reduce_polyloop_to_target,
+)
 from .armature_ops import (
     ARMATURE_OT_delete_other_bones,
+    ARMATURE_OT_remove_unweighted_bones,
+    ARMATURE_OT_roll_selected_weights_to_parent,
     ARMATURE_OT_check_fix_modifiers
 )
 
@@ -40,7 +48,13 @@ classes = (
     VERTEXGROUP_OT_remove_empty,
     VERTEXGROUP_OT_robust_weight_transfer,
     MESH_OT_force_mirror,
+    MESH_OT_select_nearby_vertices,
+    MESH_OT_preview_polyloop_reduction,
+    MESH_OT_dissolve_polyloop_candidate,
+    MESH_OT_reduce_polyloop_to_target,
     ARMATURE_OT_delete_other_bones,
+    ARMATURE_OT_remove_unweighted_bones,
+    ARMATURE_OT_roll_selected_weights_to_parent,
     ARMATURE_OT_check_fix_modifiers,
 )
 

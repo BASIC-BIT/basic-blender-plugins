@@ -74,7 +74,19 @@ class SHAPEKEY_PT_manager(Panel):
             col = box.column(align=True)
             row = col.row()
             row.operator("mesh.force_mirror")
-            
+
+            row = col.row()
+            row.operator("mesh.preview_polyloop_reduction")
+
+            row = col.row()
+            row.operator("mesh.dissolve_polyloop_candidate")
+
+            row = col.row()
+            row.operator("mesh.reduce_polyloop_to_target")
+
+            row = col.row()
+            row.operator("mesh.select_nearby_vertices")
+
             # Additional UI for advanced mesh settings
             if hasattr(context.scene, "mesh_mirror_show_advanced"):
                 show_advanced = context.scene.mesh_mirror_show_advanced
@@ -182,7 +194,28 @@ class SHAPEKEY_PT_manager(Panel):
             # Check/Fix Armature Modifiers button - always available
             row = col.row()
             row.operator("armature.check_fix_modifiers")
-            
+
+            row = col.row()
+            op = row.operator("armature.remove_unweighted_bones")
+            op.preserve_parent_chains = True
+            row = col.row()
+            row.label(text="Removes bones with no mesh weights")
+            row = col.row()
+            row.label(text="Parent chains are preserved by default")
+
+            if obj.mode in {'EDIT', 'POSE'}:
+                col.separator()
+                row = col.row()
+                op = row.operator("armature.roll_selected_weights_to_parent")
+                op.remove_rolled_vertex_groups = True
+                op.reparent_children = True
+                op.respect_locked_groups = True
+
+                row = col.row()
+                row.label(text="Selected bones roll weights to parents")
+                row = col.row()
+                row.label(text="Old vertex groups are removed")
+
             # Show operator only in edit mode
             if obj.mode == 'EDIT':
                 col.separator()
@@ -198,6 +231,9 @@ class SHAPEKEY_PT_manager(Panel):
                 
                 col.separator()
             else:
-                col.label(text="Enter Edit Mode to access bone operations")
+                if obj.mode == 'POSE':
+                    col.label(text="Enter Edit Mode to delete non-selected bones")
+                else:
+                    col.label(text="Enter Edit/Pose Mode for selected-bone tools")
         else:
             layout.label(text="Select a mesh or armature object")
