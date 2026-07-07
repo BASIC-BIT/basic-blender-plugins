@@ -9,13 +9,11 @@ bl_info = {
 }
 
 import bpy
+from .globals import copied_shape_keys
 from . import core
 from . import operators
 from . import ui
 from . import utils
-
-# Globally accessible variable to store copied shape keys
-copied_shape_keys = {}
 
 def register():
     utils.register_properties()

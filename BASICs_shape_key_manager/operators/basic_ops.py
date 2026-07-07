@@ -3,7 +3,7 @@ import json
 from bpy.types import Operator
 
 # Reference to global variable
-from .. import copied_shape_keys
+from ..globals import copied_shape_keys
 
 class SHAPEKEY_OT_copy(Operator):
     """Copy all shape key values from selected object"""
