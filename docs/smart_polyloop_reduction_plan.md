@@ -1,5 +1,8 @@
 # Smart Polyloop Reduction Plan
 
+> Superseded in scope by the full design doc: [`molt_design.md`](molt_design.md)
+> ("Molt"). This file remains as the original implementation plan.
+
 ## Goal
 
 Add an avatar-friendly polycount reduction workflow to the Blender addon. The tool should find coherent edge loops that are cheap to dissolve, rank them, and eventually dissolve loops until a selected mesh reaches a target polygon count.
