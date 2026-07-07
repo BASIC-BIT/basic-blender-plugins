@@ -219,6 +219,25 @@ def test_reduce_is_deterministic():
     assert a["stopped_reason"] == b["stopped_reason"]
 
 
+def test_reduce_preserves_weights_when_scoring_disabled():
+    # score_with_weights=False must NOT drop weights: they are still remapped
+    # through every dissolve. (Regression guard for the operator-glue bug where
+    # disabling the weight penalty destroyed a rigged mesh's deformation weights.)
+    vertices, edges, faces, _ = make_grid(5, 3)
+    weights = {i: {"G": float(i)} for i in range(len(vertices))}
+    out = dissolve.reduce_to_target(
+        vertices, edges, faces, vertex_weights=weights, target_faces=6,
+        min_edges=3, score_with_weights=False)
+    assert out["iterations"] >= 1
+    # Weights survive and stay index-consistent with the reduced mesh.
+    assert out["vertex_weights"]
+    assert set(out["vertex_weights"]) == set(range(len(out["vertices"])))
+    # Every surviving weight is a real value carried from the original mesh.
+    original_values = {float(i) for i in range(len(vertices))}
+    for groups in out["vertex_weights"].values():
+        assert groups["G"] in original_values
+
+
 def test_reduce_no_op_when_target_already_met():
     vertices, edges, faces, _ = make_grid(3, 2)  # 6 faces
     out = dissolve.reduce_to_target(
