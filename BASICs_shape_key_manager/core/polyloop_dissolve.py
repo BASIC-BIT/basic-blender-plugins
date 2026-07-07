@@ -381,7 +381,7 @@ def _edges_from_faces(faces):
 def reduce_to_target(vertices, edges, faces, vertex_weights=None,
                      target_faces=None, max_score=None, max_iterations=1000,
                      min_edges=4, max_turn_degrees=75.0,
-                     max_plane_deviation_ratio=None):
+                     max_plane_deviation_ratio=None, score_with_weights=True):
     """Iteratively dissolve the safest loop until a target is met.
 
     This is stage 3 of the design spec: repeatedly re-score the *current* mesh,
@@ -412,6 +412,10 @@ def reduce_to_target(vertices, edges, faces, vertex_weights=None,
     vertices = [tuple(v) for v in vertices]
     edges = [tuple(e) for e in edges]
     faces = [tuple(f) for f in faces]
+    # ``weights`` are always preserved through the dissolves (remapped each
+    # iteration); ``score_with_weights=False`` only drops them from the *scoring*
+    # penalty, so disabling weight-aware ranking never destroys deformation
+    # weights on a rigged mesh.
     weights = dict(vertex_weights) if vertex_weights is not None else None
 
     faces_before = len(faces)
@@ -427,7 +431,8 @@ def reduce_to_target(vertices, edges, faces, vertex_weights=None,
             break
 
         candidates = polyloop_reduction.find_loop_candidates(
-            vertices, edges, faces, vertex_weights=weights,
+            vertices, edges, faces,
+            vertex_weights=(weights if score_with_weights else None),
             min_edges=min_edges, max_turn_degrees=max_turn_degrees)
 
         if max_plane_deviation_ratio is not None:

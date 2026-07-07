@@ -139,14 +139,20 @@ class MESH_OT_preview_polyloop_reduction(Operator):
 # that way: no topology math here.
 # --------------------------------------------------------------------------- #
 
-def _mesh_to_tuples(obj, include_weights):
+def _mesh_to_tuples(obj):
     """Read the active mesh into the pure ``(vertices, edges, faces, weights)``
-    representation the core operates on."""
+    representation the core operates on.
+
+    Weights are ALWAYS collected: the dissolve rebuilds the mesh geometry from
+    scratch, so they must be threaded through and remapped to avoid destroying
+    a rigged mesh's deformation weights. Whether they also feed the *scoring*
+    penalty is a separate decision the operator makes with ``include_weight_penalty``.
+    """
     mesh = obj.data
     vertices = [tuple(v.co) for v in mesh.vertices]
     edges = [tuple(e.vertices) for e in mesh.edges]
     faces = [tuple(p.vertices) for p in mesh.polygons]
-    weights = _collect_vertex_weights(obj) if include_weights else None
+    weights = _collect_vertex_weights(obj)
     return vertices, edges, faces, weights
 
 
@@ -229,11 +235,13 @@ class MESH_OT_dissolve_polyloop_candidate(Operator):
         if original_mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        vertices, edges, faces, weights = _mesh_to_tuples(
-            obj, self.include_weight_penalty)
+        # Weights are always collected (to preserve them across the rebuild);
+        # only feed them to the scorer when the penalty is enabled.
+        vertices, edges, faces, weights = _mesh_to_tuples(obj)
+        score_weights = weights if self.include_weight_penalty else None
 
         candidates = find_loop_candidates(
-            vertices, edges, faces, vertex_weights=weights,
+            vertices, edges, faces, vertex_weights=score_weights,
             min_edges=self.min_edges, max_turn_degrees=self.max_turn_degrees)
         candidates = [c for c in candidates
                       if c.normalized_plane_deviation <= self.max_plane_deviation_ratio]
@@ -309,15 +317,17 @@ class MESH_OT_reduce_polyloop_to_target(Operator):
         if original_mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        vertices, edges, faces, weights = _mesh_to_tuples(
-            obj, self.include_weight_penalty)
+        # Always preserve weights across the rebuild; the penalty toggle only
+        # controls whether they influence candidate *scoring*.
+        vertices, edges, faces, weights = _mesh_to_tuples(obj)
 
         out = reduce_to_target(
             vertices, edges, faces, vertex_weights=weights,
             target_faces=self.target_faces, max_score=self.max_score,
             max_iterations=self.max_iterations, min_edges=self.min_edges,
             max_turn_degrees=self.max_turn_degrees,
-            max_plane_deviation_ratio=self.max_plane_deviation_ratio)
+            max_plane_deviation_ratio=self.max_plane_deviation_ratio,
+            score_with_weights=self.include_weight_penalty)
 
         if out["iterations"] == 0:
             self.report(
