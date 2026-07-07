@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BASICs Shape Key Manager",
     "author": "BASICBIT",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (4, 3, 0),
     "location": "View3D > Sidebar > Shape Keys",
     "description": "Copy, cut, paste and mirror shape keys between objects",
@@ -9,13 +9,11 @@ bl_info = {
 }
 
 import bpy
+from .globals import copied_shape_keys
 from . import core
 from . import operators
 from . import ui
 from . import utils
-
-# Globally accessible variable to store copied shape keys
-copied_shape_keys = {}
 
 def register():
     utils.register_properties()

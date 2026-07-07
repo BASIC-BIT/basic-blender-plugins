@@ -1,6 +1,12 @@
 import bpy
 import numpy as np
 from bpy.types import Operator
+from ..core.vertex_group_utils import (
+    collect_protected_group_names,
+    parse_prefix_list,
+    snapshot_vertex_groups,
+    restore_vertex_groups,
+)
 
 class SHAPEKEY_OT_transfer_with_surface_deform(Operator):
     """Transfer shape keys from source mesh to target mesh using Surface Deform modifier"""
@@ -104,8 +110,25 @@ class SHAPEKEY_OT_transfer_with_surface_deform(Operator):
         surface_deform.target = source
         surface_deform.show_viewport = True
         
+        # Snapshot protected vertex groups before the destructive clear below,
+        # so the transfer can no longer destroy the outfit's own PhysBone/
+        # dynamics weight painting on the target. Protected, in order:
+        # 1. AUTOMATIC: target groups whose names don't exist on the source
+        #    (the outfit's own dynamics chains: feathers, bows, straps)
+        # 2. AUTOMATIC: lock_weight groups
+        # 3. OVERRIDE: keep-existing prefixes (groups on both meshes the
+        #    user wants kept, e.g. hand-tuned Boob jiggle weights)
+        source_group_names = {vg.name for vg in source.vertex_groups}
+        keep_prefixes = parse_prefix_list(
+            getattr(context.scene, "weight_transfer_keep_existing_prefixes", ""))
+        protected_names = collect_protected_group_names(
+            target, source_group_names=source_group_names,
+            respect_lock_weight=True, keep_existing_prefixes=keep_prefixes)
+        protected_snapshot = snapshot_vertex_groups(target, protected_names)
+
         # Make sure all vertex groups are cleared to avoid binding issues
-        for vg in target.vertex_groups:
+        # (list() avoids skipping groups by mutating the collection mid-iteration)
+        for vg in list(target.vertex_groups):
             target.vertex_groups.remove(vg)
         
         # We need to ensure we're in object mode for this
@@ -174,6 +197,8 @@ class SHAPEKEY_OT_transfer_with_surface_deform(Operator):
             for key_name, value in stored_values.items():
                 if key_name in source.data.shape_keys.key_blocks:
                     source.data.shape_keys.key_blocks[key_name].value = value
+            # Restore the protected vertex groups removed by the pre-bind clear
+            restore_vertex_groups(target, protected_snapshot)
             # Return to original mode
             bpy.ops.object.mode_set(mode=original_mode)
             return {'CANCELLED'}
@@ -269,7 +294,13 @@ class SHAPEKEY_OT_transfer_with_surface_deform(Operator):
         for mod_name, mod_visibility in original_target_modifiers:
             if mod_name in target.modifiers:
                 target.modifiers[mod_name].show_viewport = mod_visibility
-        
+
+        # Restore protected vertex groups (PhysBone/dynamics weights) exactly
+        # as they were before the pre-bind vertex group clear
+        restored_count = restore_vertex_groups(target, protected_snapshot)
+        if restored_count > 0:
+            self.report({'INFO'}, f"Preserved {restored_count} protected vertex group(s) on {target.name}")
+
         # Return to original mode
         bpy.ops.object.mode_set(mode=original_mode)
         

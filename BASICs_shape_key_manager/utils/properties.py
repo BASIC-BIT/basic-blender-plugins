@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import FloatProperty, BoolProperty
+from bpy.props import FloatProperty, BoolProperty, StringProperty
 
 # Define scene properties for persistent settings
 def register_properties():
@@ -32,6 +32,15 @@ def register_properties():
         precision=4
     )
     
+    # Optional keep-existing override for weight/shape key transfer.
+    # Protection is otherwise automatic: target groups whose names don't
+    # exist on the source mesh, plus locked groups, are always preserved.
+    bpy.types.Scene.weight_transfer_keep_existing_prefixes = StringProperty(
+        name="Keep Existing Prefixes",
+        description="Comma-separated, case-insensitive vertex group name prefixes to ALSO protect even though they exist on both source and target — use when the outfit has hand-tuned weights you want kept instead of the body's (e.g. Boob,Breast jiggle weights). Groups missing from the source and locked groups are always protected automatically",
+        default=""
+    )
+
     # Mirror shape key properties
     bpy.types.Scene.shapekey_mirror_tolerance = FloatProperty(
         name="Mirror Tolerance",
@@ -69,6 +78,7 @@ def unregister_properties():
     del bpy.types.Scene.shapekey_transfer_clear_existing
     del bpy.types.Scene.shapekey_transfer_skip_minimal
     del bpy.types.Scene.shapekey_transfer_threshold
+    del bpy.types.Scene.weight_transfer_keep_existing_prefixes
     del bpy.types.Scene.shapekey_mirror_tolerance
     del bpy.types.Scene.mesh_mirror_show_advanced
     del bpy.types.Scene.mesh_mirror_center_tolerance

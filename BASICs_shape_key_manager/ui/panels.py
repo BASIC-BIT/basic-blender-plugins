@@ -42,6 +42,11 @@ class SHAPEKEY_PT_manager(Panel):
                     row.prop(context.scene, "shapekey_mirror_tolerance", slider=True)
                 else:
                     row.label(text="Mirror Tolerance: Not Available")
+
+                # Heuristic artifact smoothing for the active non-basis shape key
+                if obj.active_shape_key_index > 0:
+                    row = col.row()
+                    row.operator("shapekey.heuristic_smooth")
                 
                 # Add the remove selected vertices operator (only in edit mode)
                 if obj.mode == 'EDIT':
@@ -69,7 +74,19 @@ class SHAPEKEY_PT_manager(Panel):
             col = box.column(align=True)
             row = col.row()
             row.operator("mesh.force_mirror")
-            
+
+            row = col.row()
+            row.operator("mesh.preview_polyloop_reduction")
+
+            row = col.row()
+            row.operator("mesh.dissolve_polyloop_candidate")
+
+            row = col.row()
+            row.operator("mesh.reduce_polyloop_to_target")
+
+            row = col.row()
+            row.operator("mesh.select_nearby_vertices")
+
             # Additional UI for advanced mesh settings
             if hasattr(context.scene, "mesh_mirror_show_advanced"):
                 show_advanced = context.scene.mesh_mirror_show_advanced
@@ -96,19 +113,28 @@ class SHAPEKEY_PT_manager(Panel):
             # Vertex Group operations section
             box = layout.box()
             box.label(text="Vertex Group Operations")
-            
+
+            col = box.column(align=True)
+            # Weight transfer works even when the target has no vertex groups yet
+            row = col.row()
+            row.operator("vertexgroup.robust_weight_transfer")
+
+            if hasattr(context.scene, "weight_transfer_keep_existing_prefixes"):
+                row = col.row()
+                row.prop(context.scene, "weight_transfer_keep_existing_prefixes", text="Keep Existing")
+
             if len(obj.vertex_groups) > 0:
-                col = box.column(align=True)
+                col.separator()
                 row = col.row()
                 row.operator("vertexgroup.combine_groups")
-                
+
                 row = col.row()
                 row.operator("vertexgroup.remove_empty")
-                
+
                 # Display number of vertex groups
                 col.label(text=f"Vertex Groups: {len(obj.vertex_groups)}")
             else:
-                box.label(text="No Vertex Groups on selected object")
+                col.label(text="No Vertex Groups on selected object")
             
             # Advanced shape key operations section
             box = layout.box()
@@ -168,7 +194,28 @@ class SHAPEKEY_PT_manager(Panel):
             # Check/Fix Armature Modifiers button - always available
             row = col.row()
             row.operator("armature.check_fix_modifiers")
-            
+
+            row = col.row()
+            op = row.operator("armature.remove_unweighted_bones")
+            op.preserve_parent_chains = True
+            row = col.row()
+            row.label(text="Removes bones with no mesh weights")
+            row = col.row()
+            row.label(text="Parent chains are preserved by default")
+
+            if obj.mode in {'EDIT', 'POSE'}:
+                col.separator()
+                row = col.row()
+                op = row.operator("armature.roll_selected_weights_to_parent")
+                op.remove_rolled_vertex_groups = True
+                op.reparent_children = True
+                op.respect_locked_groups = True
+
+                row = col.row()
+                row.label(text="Selected bones roll weights to parents")
+                row = col.row()
+                row.label(text="Old vertex groups are removed")
+
             # Show operator only in edit mode
             if obj.mode == 'EDIT':
                 col.separator()
@@ -184,6 +231,9 @@ class SHAPEKEY_PT_manager(Panel):
                 
                 col.separator()
             else:
-                col.label(text="Enter Edit Mode to access bone operations")
+                if obj.mode == 'POSE':
+                    col.label(text="Enter Edit Mode to delete non-selected bones")
+                else:
+                    col.label(text="Enter Edit/Pose Mode for selected-bone tools")
         else:
             layout.label(text="Select a mesh or armature object")
