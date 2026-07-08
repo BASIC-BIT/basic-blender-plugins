@@ -6,9 +6,12 @@
 > below as "the tool."
 
 **Status:** shipped on `master` (PR #1 dissolve + iterate-to-target; PR #2 weight
-preservation fix). Stages 1–3 of the [staged plan](#staged-plan) are implemented,
-unit-tested (13 bpy-free tests, all green), and wired into the *BASICs Shape Key
-Manager* Blender extension. Stages 4–5 are roadmap.
+preservation fix; PR #3 rebuild guards; PR #4 shape-key-aware reduction). Stages
+1–3 of the [staged plan](#staged-plan) are implemented, unit-tested (bpy-free
+tests, all green), and wired into the *BASICs Shape Key Manager* Blender
+extension. Of stage 4, the **shape-key remap** is implemented (reduction
+preserves and remaps shape keys instead of refusing); shape-key-aware *scoring*,
+bone-chain hot spots, UV-seam delimiters, and stage 5 remain roadmap.
 
 **Audience:** BASIC and future contributors; written so it can stand as a public
 design note if Molt is ever released to the VRChat avatar-optimization community.
@@ -25,8 +28,9 @@ impact, deformation-weight variation), **dissolves the single safest loop**, the
 **re-traces and re-scores the changed mesh** and repeats until it hits a target face
 count or runs out of loops it considers safe. The scoring/tracing/dissolving core is
 pure Python + NumPy with **no `bpy` dependency**, so the entire judgment pipeline is
-unit-tested outside Blender on hand-verifiable synthetic meshes. Weight preservation
-is always on; boundary and non-manifold edges are refused.
+unit-tested outside Blender on hand-verifiable synthetic meshes. Weight and
+shape-key preservation are always on (keys are remapped through every dissolve);
+boundary and non-manifold edges are refused.
 
 ---
 
@@ -177,6 +181,58 @@ counts, and a `stopped_reason` string.
   *ranking* — turning off weight-aware scoring must never destroy weights. (The earlier
   bug: unchecking the box made the operator pass `weights=None`, and the
   `clear_geometry` + `from_pydata` rebuild silently dropped every weight.)
+- **Shape keys are preserved and remapped** (PR #4, the stage-4 remap). The
+  destructive operators snapshot every key block before the rebuild, thread the
+  keys through each dissolve, and recreate them on the rebuilt mesh — see
+  [§2.6](#26-shape-key-preservation-the-stage-4-remap). Two configurations the
+  rebuild genuinely cannot restore still hard-refuse: **absolute (non-relative)
+  shape keys** (re-adding key blocks reassigns their frame timing) and
+  **animation data (drivers/keyframes) on the shape-key datablock** (the rebuild
+  recreates the Key datablock, severing them).
+- **Attribute-loss opt-in.** UV maps, color attributes, and per-face material
+  assignments are still discarded by the rebuild (UV-aware reduction is the
+  remaining stage-4 work); the operators refuse by default and only proceed when
+  the user enables `Allow Attribute Loss` (PR #3).
+
+### 2.6 Shape-key preservation (the stage-4 remap)
+
+A loop dissolve only ever **deletes** vertices — the survivors keep their exact
+positions and indices are then compacted. Shape keys ride that same mapping:
+
+1. The operator snapshots the mesh's shape keys into the bpy-free
+   representation (`_collect_shape_key_state`): per key, the **absolute
+   per-vertex coordinates** (exactly how Blender stores `key_block.data[i].co`)
+   plus metadata (name, value, slider min/max, mute, interpolation,
+   vertex-group filter, relative-key name) and the mesh-level state
+   (`use_relative`, `eval_time`, active key index, pin state).
+2. `core/shape_key_remap.remap_shape_keys(shape_keys, vertex_sources)` carries
+   every key's coordinates through the vertex mapping, where `vertex_sources`
+   names, for each new vertex, the old source vertices it derives from. The
+   remapped coordinate is the **component-wise mean of the sources' absolute
+   coordinates**:
+   - *Surviving vertices* (singleton sources — the only case the dissolve
+     produces today) get an exact copy, so every surviving vertex keeps its
+     exact morph positions.
+   - *Merged vertices* (multi-source, future-proofing for collapse-style
+     edits) average — consistent with how a merge would place the base-mesh
+     vertex, and by linearity it preserves relative-key deltas exactly:
+     `mean(key) − mean(relative) = mean(key − relative)`.
+   - *Removed vertices* drop their morph data the same way they drop their
+     base position — geometry that no longer exists cannot morph.
+3. `reduce_to_target` threads the keys through **every** iteration (like
+   weights), so the final key blocks are index-consistent with the final mesh.
+4. After the rebuild, the operator recreates the key blocks in original order
+   (first key becomes the reference/Basis again — its remapped coordinates are
+   by construction exactly the surviving base positions), restores coordinates
+   via `foreach_set`, re-links `relative_key` by name after all blocks exist,
+   and restores slider ranges **before** values so restored values are not
+   clamped by default ranges.
+
+Because the remap math lives in `core/shape_key_remap.py` (pure Python, no
+bpy), the identity/merge/removal cases and relative-key-chain invariants are
+unit-tested outside Blender alongside the rest of the pipeline; the operator
+snapshot/rebuild glue is covered by a bpy-stubbed harness
+(`tests/test_polyloop_ops_shape_keys.py`).
 
 ---
 
@@ -188,8 +244,8 @@ plumbing**:
 
 | Layer | Files | `bpy`? | Tested? |
 |---|---|---|---|
-| **Core (all topology math + scoring)** | `core/polyloop_reduction.py` (trace + score), `core/polyloop_dissolve.py` (dissolve + iterate) | **No** — pure Python + NumPy | **Yes** — 13 bpy-free tests |
-| **Operator glue** | `operators/polyloop_ops.py` | Yes | No (deliberately) |
+| **Core (all topology math + scoring)** | `core/polyloop_reduction.py` (trace + score), `core/polyloop_dissolve.py` (dissolve + iterate), `core/shape_key_remap.py` (shape-key carry-through) | **No** — pure Python + NumPy | **Yes** — bpy-free tests |
+| **Operator glue** | `operators/polyloop_ops.py` | Yes | Guards + shape-key snapshot/rebuild covered by a bpy-stubbed harness; the rest deliberately untested |
 
 Everything operates on one dumb, serializable representation:
 
@@ -198,6 +254,8 @@ vertices       : list of (x, y, z) tuples
 edges          : list of (a, b) vertex-index pairs
 faces          : list of vertex-index tuples (any arity; quads in practice)
 vertex_weights : optional {vertex_index: {group_name: weight}}
+shape_keys     : optional ordered list of {"name", "coordinates", ...metadata}
+                 dicts (absolute per-vertex positions per key block)
 ```
 
 The Blender operators are intentionally **thin and untested**: they (1) read the active
@@ -255,7 +313,13 @@ Molt covers stages 1–3 of the original spec. The remaining stages deepen the
 
 ### Stage 4 — Deformation/morph/UV-aware scoring
 Today's weight-variation term already catches joint zones implicitly. Stage 4 makes the
-score understand the rest of what avatar topology encodes:
+score understand the rest of what avatar topology encodes.
+
+> **Partially shipped (PR #4):** the *shape-key remap* half of this stage is
+> implemented — reduction now preserves and remaps shape keys instead of
+> refusing meshes that have them (see [§2.6](#26-shape-key-preservation-the-stage-4-remap)).
+> The items below (shape-key-aware *scoring*, bone-chain hot spots, UV-seam
+> delimiters, bridge pairs) remain roadmap.
 
 - **Bone-chain hot spots.** Read the mesh's armature and add extra penalty to loops in
   high-motion regions (elbows, knees, shoulders, hips, fingers, chest/jiggle). The
@@ -263,7 +327,9 @@ score understand the rest of what avatar topology encodes:
   deformation-bone name tables (Boob/Butt/Thigh-Jiggle/Hips-Dips, etc.) that can seed a
   hot-spot list without inventing one.
 - **Shape-key delta variation.** Penalize loops whose vertices carry large blendshape
-  deltas, so morph- and viseme-critical geometry is not dissolved blindly.
+  deltas, so morph- and viseme-critical geometry is not dissolved blindly. (The
+  *preservation* half is done — keys survive the reduction via the remap; this
+  item is about making the score avoid morph-heavy loops in the first place.)
 - **UV-seam / material-boundary delimiters.** Treat UV islands and material splits as
   hard stops (mirroring Blender's dissolve *delimiters*), so a reduction never tears a
   texture island or merges across a material.
@@ -315,7 +381,7 @@ Net: Molt (topology) and the atlas tool (materials/UVs) are complementary halves
 | 1 | Preview only: analyze, score, select best loop(s) in Edit Mode | ✅ shipped |
 | 2 | Single-loop dissolve with Blender semantics + poly-delta report | ✅ shipped |
 | 3 | Target-face-count mode: iterate safest-first, re-score each edit | ✅ shipped |
-| 4 | Bone-chain / shape-key / UV-seam-aware scoring + bridge pairs | roadmap |
+| 4 | Bone-chain / shape-key / UV-seam-aware scoring + bridge pairs | 🟡 partial — **shape-key remap shipped (PR #4)**: reduction preserves + remaps shape keys; scoring/UV/bone items remain roadmap |
 | 5 | Visual validation gate (before/after) on final meshes | roadmap |
 
 ---
@@ -345,10 +411,13 @@ dissolve, not general decimation or full retopology).
 | File | Role |
 |---|---|
 | `core/polyloop_reduction.py` | Loop tracer + safety scorer (`find_loop_candidates`, `score_loop_candidate`, `LoopCandidate`). bpy-free. |
-| `core/polyloop_dissolve.py` | Destructive dissolve + iterate-to-target (`dissolve_loop`, `reduce_to_target`, `DissolveResult`, `DissolveError`). bpy-free. |
-| `operators/polyloop_ops.py` | Blender operators (preview / dissolve-safest / reduce-to-target) + tuple-mesh glue. Thin, untested. |
+| `core/polyloop_dissolve.py` | Destructive dissolve + iterate-to-target (`dissolve_loop`, `reduce_to_target`, `DissolveResult`, `DissolveError`); threads weights + shape keys through every edit. bpy-free. |
+| `core/shape_key_remap.py` | Shape-key carry-through for destructive rebuilds (`remap_shape_keys`, `sources_from_vertex_remap`, `ShapeKeyRemapError`). bpy-free. |
+| `operators/polyloop_ops.py` | Blender operators (preview / dissolve-safest / reduce-to-target) + tuple-mesh glue, rebuild guards, shape-key snapshot/rebuild. Thin. |
 | `tests/test_polyloop_reduction.py` | Scorer tests (synthetic strips). |
-| `tests/test_polyloop_dissolve.py` | Dissolve + reducer tests (synthetic grids). |
+| `tests/test_polyloop_dissolve.py` | Dissolve + reducer tests (synthetic grids), incl. shape-key threading. |
+| `tests/test_shape_key_remap.py` | Remap math tests (identity / removal / merge / relative-key chains / validation). |
+| `tests/test_polyloop_ops_shape_keys.py` | bpy-stubbed operator-glue tests (rebuild guards, shape-key snapshot + rebuild semantics). |
 | `docs/smart_polyloop_reduction_plan.md` | Original implementation plan (superseded in scope by this design doc). |
 
 ### References

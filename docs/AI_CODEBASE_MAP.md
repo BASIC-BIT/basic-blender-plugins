@@ -14,6 +14,7 @@ BASICs_shape_key_manager/
 │   ├── octree.py                # Octree implementation for spatial searching
 │   ├── polyloop_reduction.py    # bpy-free edge-loop tracing + scoring
 │   ├── polyloop_dissolve.py     # bpy-free loop dissolve + iterate-to-target
+│   ├── shape_key_remap.py       # bpy-free shape-key remap across destructive rebuilds
 │   └── vertex_group_utils.py    # bpy-free vertex group snapshot/protection helpers
 ├── operators/                   # Blender operators
 │   ├── __init__.py              # Registers all operators
@@ -119,6 +120,15 @@ BASICs_shape_key_manager/
   - `calculate_deformation_amount()`: Calculates mesh deformation metrics
 - **Safety**: Protected vertex groups (outfit-only/locked/keep-prefix, see `core/vertex_group_utils.py`) are snapshotted before the pre-bind vertex group clear and restored on EVERY exit path via `try`/`finally` (bind failure, unhandled errors mid-transfer, and normal completion)
 
+### core/shape_key_remap.py
+- **Purpose**: bpy-free shape-key remap math for destructive mesh rebuilds (stage-4 shape-key-aware reduction; see `docs/molt_design.md` section 2.6)
+- **Key Classes**:
+  - `ShapeKeyRemapError`: raised on inconsistent inputs (coordinate-count mismatch, empty/out-of-range source lists)
+- **Main Functions**:
+  - `remap_shape_keys()`: carries every shape key's absolute per-vertex coordinates through a vertex mapping; singleton sources copy exactly (survivors), multi-source entries average (merges, preserving relative-key deltas by linearity)
+  - `sources_from_vertex_remap()`: builds the survivor (singleton) source lists from the dissolve's `{old: new}` index remap
+- **Tested by**: `tests/test_shape_key_remap.py` (bpy-free; identity/removal/merge/relative-chain/validation cases)
+
 ### operators/polyloop_ops.py
 - **Purpose**: Thin Blender glue for the tested polyloop core (no topology math here)
 - **Key Classes**:
@@ -126,8 +136,10 @@ BASICs_shape_key_manager/
   - `MESH_OT_dissolve_polyloop_candidate`: Dissolves the single safest loop (destructive rebuild)
   - `MESH_OT_reduce_polyloop_to_target`: Iteratively dissolves loops to a target face count (destructive rebuild)
 - **Helper Functions**:
-  - `_mesh_to_tuples()` / `_write_tuples_to_mesh()`: bpy <-> tuple-mesh mirror; weights are ALWAYS collected and reapplied after the rebuild
-  - `_destructive_rebuild_blockers()` / `_refuse_unpreservable_data()`: guard the `clear_geometry()`/`from_pydata` rebuild — meshes with shape keys are refused outright; UV maps, color attributes, and multi-material face assignments block unless the user enables the `allow_attribute_loss` toggle
+  - `_mesh_to_tuples()` / `_write_tuples_to_mesh()`: bpy <-> tuple-mesh mirror; weights AND shape keys are ALWAYS collected, threaded through the core dissolve, and reapplied/recreated after the rebuild
+  - `_collect_shape_key_state()` / `_apply_shape_key_state()`: snapshot key blocks (absolute coordinates + metadata + mesh-level state) into the bpy-free representation and recreate them on the rebuilt mesh (original order, relative-key links by name, slider ranges restored before values)
+  - `_destructive_rebuild_blockers()` / `_refuse_unpreservable_data()`: guard the `clear_geometry()`/`from_pydata` rebuild — relative shape keys are now preserved (not refused); hard-refuse remains only for absolute (non-relative) shape keys and animation data (drivers/keyframes) on the shape-key datablock; UV maps, color attributes, and multi-material face assignments block unless the user enables the `allow_attribute_loss` toggle
+- **Tested by**: `tests/test_polyloop_ops_shape_keys.py` (bpy-stubbed harness for the guards and shape-key snapshot/rebuild glue)
 
 ### operators/edit_ops.py
 - **Purpose**: Edit mode operations for shape keys

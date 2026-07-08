@@ -13,6 +13,9 @@ __init__.py (main)
 │   ├── mesh_mirror_ops.py: MESH_OT_* classes
 │   ├── transfer_ops.py: SHAPEKEY_OT_* classes
 │   ├── edit_ops.py: SHAPEKEY_OT_* classes
+│   ├── polyloop_ops.py: MESH_OT_* polyloop classes
+│   ├── smooth_ops.py: SHAPEKEY_OT_* smoothing classes
+│   ├── mesh_select_ops.py: MESH_OT_* selection classes
 │   ├── armature_ops.py: ARMATURE_OT_* classes
 │   └── vertex_group_ops.py: VERTEXGROUP_OT_* classes
 └── ui/__init__.py: register()
@@ -26,11 +29,18 @@ __init__.py (main)
 | __init__.py | core, operators, ui, utils | N/A (top level) |
 | core/octree.py | numpy, mathutils | core/mirror_utils.py |
 | core/mirror_utils.py | core/octree.py, re, mathutils | mirror_ops.py, mesh_mirror_ops.py |
+| core/polyloop_reduction.py | numpy (bpy-free) | core/polyloop_dissolve.py, polyloop_ops.py |
+| core/polyloop_dissolve.py | core/polyloop_reduction.py, core/shape_key_remap.py (bpy-free) | polyloop_ops.py |
+| core/shape_key_remap.py | (none; pure Python, bpy-free) | core/polyloop_dissolve.py, polyloop_ops.py (representation) |
+| core/vertex_group_utils.py | (pure Python, bpy-free) | transfer_ops.py, vertex_group_ops.py |
 | operators/basic_ops.py | bpy, json, Global copied_shape_keys | operators/__init__.py |
 | operators/mirror_ops.py | bpy, re, mathutils, core/mirror_utils.py | operators/__init__.py |
 | operators/mesh_mirror_ops.py | bpy, bmesh, mathutils, core/mirror_utils.py | operators/__init__.py |
-| operators/transfer_ops.py | bpy, numpy | operators/__init__.py |
+| operators/transfer_ops.py | bpy, numpy, core/vertex_group_utils.py | operators/__init__.py |
 | operators/edit_ops.py | bpy | operators/__init__.py |
+| operators/polyloop_ops.py | bpy, core/polyloop_reduction.py, core/polyloop_dissolve.py | operators/__init__.py |
+| operators/smooth_ops.py | bpy | operators/__init__.py |
+| operators/mesh_select_ops.py | bpy | operators/__init__.py |
 | operators/armature_ops.py | bpy | operators/__init__.py |
 | operators/vertex_group_ops.py | bpy | operators/__init__.py |
 | ui/panels.py | bpy | ui/__init__.py |
@@ -119,6 +129,25 @@ SHAPEKEY_OT_transfer_with_surface_deform.execute()
 └── Restores original state
 ```
 
+**In polyloop_ops.py (destructive ops; shape-key-aware since PR #4):**
+```
+MESH_OT_dissolve_polyloop_candidate.execute() / MESH_OT_reduce_polyloop_to_target.execute()
+├── _refuse_unpreservable_data()
+│   └── _destructive_rebuild_blockers() → hard-refuse ONLY absolute shape keys
+│       or shape-key animation data; UV/color/material loss gates on
+│       allow_attribute_loss
+├── _mesh_to_tuples() → vertices/edges/faces + weights (ALWAYS collected)
+├── _collect_shape_key_state() → mesh-level state + bpy-free key list
+├── dissolve_loop() / reduce_to_target() (core/polyloop_dissolve.py)
+│   └── shape_key_remap.remap_shape_keys() carries keys through each
+│       vertex remap (core/shape_key_remap.py)
+└── _write_tuples_to_mesh()
+    ├── shape_key_clear() → clear_geometry() → from_pydata()
+    ├── re-apply remapped vertex weights
+    └── _apply_shape_key_state() → recreate key blocks (order, coordinates,
+        relative-key links, slider ranges before values, active/pin state)
+```
+
 **In armature_ops.py:**
 ```
 ARMATURE_OT_delete_other_bones.execute()
@@ -170,6 +199,7 @@ VERTEXGROUP_OT_remove_empty.execute()
 | mesh_mirror_ops.py | bpy.types.Operator, bmesh, mode_set, object.data.vertices, vertex_groups |
 | transfer_ops.py | bpy.types.Operator, shape_keys, modifiers, ops.object.mode_set, view_layer.update, depsgraph |
 | edit_ops.py | bpy.types.Operator, bpy.ops.object.mode_set, shape_keys, key_blocks |
+| polyloop_ops.py | bpy.types.Operator, mesh.vertices/edges/polygons, vertex_groups, shape_keys, key_blocks, shape_key_add, shape_key_clear, key_block.data.foreach_set, clear_geometry, from_pydata, mode_set |
 | armature_ops.py | bpy.types.Operator, bpy.props.BoolProperty, object.data.edit_bones, edit_bones.select, edit_bones.parent, edit_bones.children, object.modifiers |
 | vertex_group_ops.py | bpy.types.Operator, vertex_groups, add, weight, report, object.data.vertices |
 | panels.py | bpy.types.Panel, layout, box, column, row, prop, operator |
