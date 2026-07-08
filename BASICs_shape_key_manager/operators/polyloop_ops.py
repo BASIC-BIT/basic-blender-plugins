@@ -139,6 +139,59 @@ class MESH_OT_preview_polyloop_reduction(Operator):
 # that way: no topology math here.
 # --------------------------------------------------------------------------- #
 
+def _destructive_rebuild_blockers(obj):
+    """Inventory data the ``clear_geometry()``/``from_pydata`` rebuild cannot
+    preserve, split by severity.
+
+    Returns ``(hard_blockers, lossy_layers)`` lists of human-readable strings:
+
+    - ``hard_blockers``: shape keys. Key blocks are per-vertex data, so a
+      reindexed rebuild would corrupt or lose every blendshape. The operators
+      refuse outright; shape-key-aware remapping is stage-4 roadmap
+      (``docs/molt_design.md``).
+    - ``lossy_layers``: UV maps, color attributes, and per-face material
+      assignments. These are discarded by the rebuild; the operators only
+      proceed when the user explicitly opts in via ``allow_attribute_loss``.
+    """
+    mesh = obj.data
+
+    hard_blockers = []
+    if mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 0:
+        hard_blockers.append(
+            f"{len(mesh.shape_keys.key_blocks)} shape key(s)")
+
+    lossy_layers = []
+    if len(mesh.uv_layers) > 0:
+        lossy_layers.append(f"{len(mesh.uv_layers)} UV map(s)")
+    if len(mesh.color_attributes) > 0:
+        lossy_layers.append(
+            f"{len(mesh.color_attributes)} color attribute(s)")
+    if len(mesh.materials) > 1:
+        lossy_layers.append(
+            f"per-face assignments across {len(mesh.materials)} material slots")
+    return hard_blockers, lossy_layers
+
+
+def _refuse_unpreservable_data(operator, obj, allow_attribute_loss):
+    """Shared guard for the destructive operators. Reports and returns True
+    when the rebuild must not run on this mesh."""
+    hard_blockers, lossy_layers = _destructive_rebuild_blockers(obj)
+    if hard_blockers:
+        operator.report(
+            {'ERROR'},
+            "Cannot rebuild mesh with " + ", ".join(hard_blockers)
+            + ": shape keys would be lost or corrupted. Apply or remove "
+              "them first (shape-key-aware reduction is roadmap).")
+        return True
+    if lossy_layers and not allow_attribute_loss:
+        operator.report(
+            {'ERROR'},
+            "Rebuild would discard " + ", ".join(lossy_layers)
+            + ". Enable 'Allow Attribute Loss' to proceed anyway.")
+        return True
+    return False
+
+
 def _mesh_to_tuples(obj):
     """Read the active mesh into the pure ``(vertices, edges, faces, weights)``
     representation the core operates on.
@@ -223,6 +276,13 @@ class MESH_OT_dissolve_polyloop_candidate(Operator):
         description="Penalize loops whose vertex group weights vary heavily",
         default=True,
     )
+    allow_attribute_loss: BoolProperty(
+        name="Allow Attribute Loss",
+        description="Proceed even though the rebuild discards UV maps, color "
+                    "attributes, and per-face material assignments "
+                    "(meshes with shape keys are always refused)",
+        default=False,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -231,6 +291,8 @@ class MESH_OT_dissolve_polyloop_candidate(Operator):
 
     def execute(self, context):
         obj = context.active_object
+        if _refuse_unpreservable_data(self, obj, self.allow_attribute_loss):
+            return {'CANCELLED'}
         original_mode = obj.mode
         if original_mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -305,6 +367,13 @@ class MESH_OT_reduce_polyloop_to_target(Operator):
     include_weight_penalty: BoolProperty(
         name="Weight-Aware Score", default=True,
     )
+    allow_attribute_loss: BoolProperty(
+        name="Allow Attribute Loss",
+        description="Proceed even though the rebuild discards UV maps, color "
+                    "attributes, and per-face material assignments "
+                    "(meshes with shape keys are always refused)",
+        default=False,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -313,6 +382,8 @@ class MESH_OT_reduce_polyloop_to_target(Operator):
 
     def execute(self, context):
         obj = context.active_object
+        if _refuse_unpreservable_data(self, obj, self.allow_attribute_loss):
+            return {'CANCELLED'}
         original_mode = obj.mode
         if original_mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')

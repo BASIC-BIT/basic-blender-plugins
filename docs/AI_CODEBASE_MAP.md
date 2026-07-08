@@ -11,13 +11,18 @@ BASICs_shape_key_manager/
 ├── core/                        # Core functionality
 │   ├── __init__.py              # Exports core components
 │   ├── mirror_utils.py          # Common mirroring utility functions
-│   └── octree.py                # Octree implementation for spatial searching
+│   ├── octree.py                # Octree implementation for spatial searching
+│   ├── polyloop_reduction.py    # bpy-free edge-loop tracing + scoring
+│   ├── polyloop_dissolve.py     # bpy-free loop dissolve + iterate-to-target
+│   └── vertex_group_utils.py    # bpy-free vertex group snapshot/protection helpers
 ├── operators/                   # Blender operators
 │   ├── __init__.py              # Registers all operators
 │   ├── basic_ops.py             # Basic shape key operations (copy/cut/paste)
 │   ├── edit_ops.py              # Edit mode operations
 │   ├── mirror_ops.py            # Shape key mirroring functions
 │   ├── mesh_mirror_ops.py       # Mesh mirroring functions
+│   ├── polyloop_ops.py          # Polyloop preview/dissolve/reduce operator glue
+│   ├── smooth_ops.py            # Heuristic blendshape smoothing
 │   ├── transfer_ops.py          # Shape key transfer between objects
 │   ├── armature_ops.py          # Armature editing operations
 │   └── vertex_group_ops.py      # Vertex group operations
@@ -112,6 +117,17 @@ BASICs_shape_key_manager/
   - `SHAPEKEY_OT_transfer_with_surface_deform`: Transfers shape keys using Blender's Surface Deform modifier
 - **Main Functions**:
   - `calculate_deformation_amount()`: Calculates mesh deformation metrics
+- **Safety**: Protected vertex groups (outfit-only/locked/keep-prefix, see `core/vertex_group_utils.py`) are snapshotted before the pre-bind vertex group clear and restored on EVERY exit path via `try`/`finally` (bind failure, unhandled errors mid-transfer, and normal completion)
+
+### operators/polyloop_ops.py
+- **Purpose**: Thin Blender glue for the tested polyloop core (no topology math here)
+- **Key Classes**:
+  - `MESH_OT_preview_polyloop_reduction`: Selects best-scoring loop candidates (non-destructive)
+  - `MESH_OT_dissolve_polyloop_candidate`: Dissolves the single safest loop (destructive rebuild)
+  - `MESH_OT_reduce_polyloop_to_target`: Iteratively dissolves loops to a target face count (destructive rebuild)
+- **Helper Functions**:
+  - `_mesh_to_tuples()` / `_write_tuples_to_mesh()`: bpy <-> tuple-mesh mirror; weights are ALWAYS collected and reapplied after the rebuild
+  - `_destructive_rebuild_blockers()` / `_refuse_unpreservable_data()`: guard the `clear_geometry()`/`from_pydata` rebuild — meshes with shape keys are refused outright; UV maps, color attributes, and multi-material face assignments block unless the user enables the `allow_attribute_loss` toggle
 
 ### operators/edit_ops.py
 - **Purpose**: Edit mode operations for shape keys
