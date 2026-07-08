@@ -126,183 +126,198 @@ class SHAPEKEY_OT_transfer_with_surface_deform(Operator):
             respect_lock_weight=True, keep_existing_prefixes=keep_prefixes)
         protected_snapshot = snapshot_vertex_groups(target, protected_names)
 
-        # Make sure all vertex groups are cleared to avoid binding issues
-        # (list() avoids skipping groups by mutating the collection mid-iteration)
-        for vg in list(target.vertex_groups):
-            target.vertex_groups.remove(vg)
-        
-        # We need to ensure we're in object mode for this
-        original_mode = context.object.mode
-        bpy.ops.object.mode_set(mode='OBJECT')
-        
-        # Make sure both objects are visible and selectable
-        source_hide = source.hide_get()
-        source_select = source.hide_select
-        target_hide = target.hide_get()
-        target_select = target.hide_select
-        
-        source.hide_set(False)
-        source.hide_select = False
-        target.hide_set(False)
-        target.hide_select = False
-        
-        # Force a scene update before binding
-        context.view_layer.update()
-        
-        # Set the right context for binding - using the new temp_override system for Blender 4.x
-        bind_success = False
+        # Everything below is destructive (the protected groups are deleted by
+        # the pre-bind clear). If ANY later step raises before the snapshot has
+        # been restored -- shape key creation, evaluated-mesh reads, modifier
+        # cleanup -- the finally puts the protected groups back instead of
+        # leaving them deleted (PR #1 review feedback).
+        snapshot_restored = False
         try:
-            # First attempt with the new context override system (Blender 4.x+)
-            with context.temp_override(
-                object=target,
-                active_object=target,
-                selected_objects=[target],
-                selected_editable_objects=[target]
-            ):
-                bpy.ops.object.surfacedeform_bind(modifier=surface_deform.name)
-                bind_success = True
-        except Exception as e:
-            self.report({'WARNING'}, f"Error binding Surface Deform: {str(e)}")
-            # Try a fallback method - sometimes binding directly works
+            # Make sure all vertex groups are cleared to avoid binding issues
+            # (list() avoids skipping groups by mutating the collection mid-iteration)
+            for vg in list(target.vertex_groups):
+                target.vertex_groups.remove(vg)
+        
+            # We need to ensure we're in object mode for this
+            original_mode = context.object.mode
+            bpy.ops.object.mode_set(mode='OBJECT')
+        
+            # Make sure both objects are visible and selectable
+            source_hide = source.hide_get()
+            source_select = source.hide_select
+            target_hide = target.hide_get()
+            target_select = target.hide_select
+        
+            source.hide_set(False)
+            source.hide_select = False
+            target.hide_set(False)
+            target.hide_select = False
+        
+            # Force a scene update before binding
+            context.view_layer.update()
+        
+            # Set the right context for binding - using the new temp_override system for Blender 4.x
+            bind_success = False
             try:
-                # Set active object
-                context.view_layer.objects.active = target
-                # Select only the target
-                for obj in context.selected_objects:
-                    obj.select_set(False)
-                target.select_set(True)
+                # First attempt with the new context override system (Blender 4.x+)
+                with context.temp_override(
+                    object=target,
+                    active_object=target,
+                    selected_objects=[target],
+                    selected_editable_objects=[target]
+                ):
+                    bpy.ops.object.surfacedeform_bind(modifier=surface_deform.name)
+                    bind_success = True
+            except Exception as e:
+                self.report({'WARNING'}, f"Error binding Surface Deform: {str(e)}")
+                # Try a fallback method - sometimes binding directly works
+                try:
+                    # Set active object
+                    context.view_layer.objects.active = target
+                    # Select only the target
+                    for obj in context.selected_objects:
+                        obj.select_set(False)
+                    target.select_set(True)
                 
-                # Try binding again
-                bpy.ops.object.surfacedeform_bind(modifier=surface_deform.name)
-                bind_success = True
-            except Exception as fallback_error:
-                self.report({'ERROR'}, f"Fallback binding also failed: {str(fallback_error)}")
-                bind_success = False
+                    # Try binding again
+                    bpy.ops.object.surfacedeform_bind(modifier=surface_deform.name)
+                    bind_success = True
+                except Exception as fallback_error:
+                    self.report({'ERROR'}, f"Fallback binding also failed: {str(fallback_error)}")
+                    bind_success = False
         
-        # Restore visibility and selectability
-        source.hide_set(source_hide)
-        source.hide_select = source_select
-        target.hide_set(target_hide)
-        target.hide_select = target_select
+            # Restore visibility and selectability
+            source.hide_set(source_hide)
+            source.hide_select = source_select
+            target.hide_set(target_hide)
+            target.hide_select = target_select
         
-        # If binding failed, clean up and exit
-        if not bind_success:
-            # Clean up
-            target.modifiers.remove(surface_deform)
-            # Restore modifier visibility
-            for mod_name, mod_visibility in original_target_modifiers:
-                if mod_name in target.modifiers:
-                    target.modifiers[mod_name].show_viewport = mod_visibility
+            # If binding failed, clean up and exit
+            if not bind_success:
+                # Clean up
+                target.modifiers.remove(surface_deform)
+                # Restore modifier visibility
+                for mod_name, mod_visibility in original_target_modifiers:
+                    if mod_name in target.modifiers:
+                        target.modifiers[mod_name].show_viewport = mod_visibility
+                # Restore original shape key values on source
+                for key_name, value in stored_values.items():
+                    if key_name in source.data.shape_keys.key_blocks:
+                        source.data.shape_keys.key_blocks[key_name].value = value
+                # Restore the protected vertex groups removed by the pre-bind clear
+                restore_vertex_groups(target, protected_snapshot)
+                snapshot_restored = True
+                # Return to original mode
+                bpy.ops.object.mode_set(mode=original_mode)
+                return {'CANCELLED'}
+        
+            # Force immediate mesh update to capture binding
+            context.view_layer.update()
+            context.view_layer.depsgraph.update()
+        
+            # Transfer each shape key
+            transferred_count = 0
+            skipped_count = 0
+        
+            # If there's a shape key, get the basis shape for correct comparison
+            if target.data.shape_keys:
+                basis_key = target.data.shape_keys.key_blocks['Basis']
+        
+            for key in source.data.shape_keys.key_blocks:
+                if key.name != 'Basis':
+                    # Reset all shape keys to zero first
+                    for reset_key in source.data.shape_keys.key_blocks:
+                        if reset_key.name != 'Basis':
+                            reset_key.value = 0.0
+                
+                    # Set only this shape key to maximum value
+                    key.value = strength
+                
+                    # Force update to ensure the modifier has updated the mesh
+                    context.view_layer.update()
+                    context.view_layer.depsgraph.update()
+                
+                    # Evaluate if this shape key causes deformation
+                    skip_this_key = False
+                    deformed_verts = None
+                
+                    if skip_minimal_effect:
+                        # Get current deformed vertex coordinates
+                        # We need the actual data from the depsgraph for accurate evaluation
+                        depsgraph = context.evaluated_depsgraph_get()
+                        evaluated_obj = target.evaluated_get(depsgraph)
+                    
+                        # Get deformed coordinates
+                        deformed_coords = [evaluated_obj.data.vertices[i].co.copy() for i in range(len(target.data.vertices))]
+                    
+                        # Store for later use
+                        deformed_verts = deformed_coords
+                    
+                        # Calculate deformation metrics against original coordinates
+                        max_displacement, avg_displacement = self.calculate_deformation_amount(
+                            target, original_coords, deformed_coords)
+                    
+                        # Skip if below threshold
+                        if max_displacement < deformation_threshold:
+                            self.report({'INFO'}, f"Skipping shape key {key.name} (max displacement: {max_displacement:.6f})")
+                            key.value = 0.0
+                            skipped_count += 1
+                            skip_this_key = True
+                    else:
+                        # Get the deformed vertices for capture
+                        depsgraph = context.evaluated_depsgraph_get()
+                        evaluated_obj = target.evaluated_get(depsgraph)
+                        deformed_verts = [evaluated_obj.data.vertices[i].co.copy() for i in range(len(target.data.vertices))]
+                
+                    if not skip_this_key:
+                        # Use direct mesh data manipulation for more reliable shape key creation
+                        # First create a new shape key
+                        new_key = target.shape_key_add(name=f"temp_{key.name}")
+                        new_key.interpolation = 'KEY_LINEAR'
+                    
+                        # Then manually set its vertex positions from the evaluated mesh
+                        for i, co in enumerate(deformed_verts):
+                            new_key.data[i].co = co
+                    
+                        # Rename to match source
+                        new_key.name = key.name
+                    
+                        transferred_count += 1
+                
+                    # Reset source shape key value
+                    key.value = 0.0
+                
+                    # Force update again
+                    context.view_layer.update()
+        
             # Restore original shape key values on source
             for key_name, value in stored_values.items():
                 if key_name in source.data.shape_keys.key_blocks:
                     source.data.shape_keys.key_blocks[key_name].value = value
-            # Restore the protected vertex groups removed by the pre-bind clear
-            restore_vertex_groups(target, protected_snapshot)
+        
+            # Remove the Surface Deform modifier
+            target.modifiers.remove(surface_deform)
+        
+            # Restore original modifier visibility
+            for mod_name, mod_visibility in original_target_modifiers:
+                if mod_name in target.modifiers:
+                    target.modifiers[mod_name].show_viewport = mod_visibility
+
+            # Restore protected vertex groups (PhysBone/dynamics weights) exactly
+            # as they were before the pre-bind vertex group clear
+            restored_count = restore_vertex_groups(target, protected_snapshot)
+            snapshot_restored = True
+            if restored_count > 0:
+                self.report({'INFO'}, f"Preserved {restored_count} protected vertex group(s) on {target.name}")
+
             # Return to original mode
             bpy.ops.object.mode_set(mode=original_mode)
-            return {'CANCELLED'}
-        
-        # Force immediate mesh update to capture binding
-        context.view_layer.update()
-        context.view_layer.depsgraph.update()
-        
-        # Transfer each shape key
-        transferred_count = 0
-        skipped_count = 0
-        
-        # If there's a shape key, get the basis shape for correct comparison
-        if target.data.shape_keys:
-            basis_key = target.data.shape_keys.key_blocks['Basis']
-        
-        for key in source.data.shape_keys.key_blocks:
-            if key.name != 'Basis':
-                # Reset all shape keys to zero first
-                for reset_key in source.data.shape_keys.key_blocks:
-                    if reset_key.name != 'Basis':
-                        reset_key.value = 0.0
-                
-                # Set only this shape key to maximum value
-                key.value = strength
-                
-                # Force update to ensure the modifier has updated the mesh
-                context.view_layer.update()
-                context.view_layer.depsgraph.update()
-                
-                # Evaluate if this shape key causes deformation
-                skip_this_key = False
-                deformed_verts = None
-                
-                if skip_minimal_effect:
-                    # Get current deformed vertex coordinates
-                    # We need the actual data from the depsgraph for accurate evaluation
-                    depsgraph = context.evaluated_depsgraph_get()
-                    evaluated_obj = target.evaluated_get(depsgraph)
-                    
-                    # Get deformed coordinates
-                    deformed_coords = [evaluated_obj.data.vertices[i].co.copy() for i in range(len(target.data.vertices))]
-                    
-                    # Store for later use
-                    deformed_verts = deformed_coords
-                    
-                    # Calculate deformation metrics against original coordinates
-                    max_displacement, avg_displacement = self.calculate_deformation_amount(
-                        target, original_coords, deformed_coords)
-                    
-                    # Skip if below threshold
-                    if max_displacement < deformation_threshold:
-                        self.report({'INFO'}, f"Skipping shape key {key.name} (max displacement: {max_displacement:.6f})")
-                        key.value = 0.0
-                        skipped_count += 1
-                        skip_this_key = True
-                else:
-                    # Get the deformed vertices for capture
-                    depsgraph = context.evaluated_depsgraph_get()
-                    evaluated_obj = target.evaluated_get(depsgraph)
-                    deformed_verts = [evaluated_obj.data.vertices[i].co.copy() for i in range(len(target.data.vertices))]
-                
-                if not skip_this_key:
-                    # Use direct mesh data manipulation for more reliable shape key creation
-                    # First create a new shape key
-                    new_key = target.shape_key_add(name=f"temp_{key.name}")
-                    new_key.interpolation = 'KEY_LINEAR'
-                    
-                    # Then manually set its vertex positions from the evaluated mesh
-                    for i, co in enumerate(deformed_verts):
-                        new_key.data[i].co = co
-                    
-                    # Rename to match source
-                    new_key.name = key.name
-                    
-                    transferred_count += 1
-                
-                # Reset source shape key value
-                key.value = 0.0
-                
-                # Force update again
-                context.view_layer.update()
-        
-        # Restore original shape key values on source
-        for key_name, value in stored_values.items():
-            if key_name in source.data.shape_keys.key_blocks:
-                source.data.shape_keys.key_blocks[key_name].value = value
-        
-        # Remove the Surface Deform modifier
-        target.modifiers.remove(surface_deform)
-        
-        # Restore original modifier visibility
-        for mod_name, mod_visibility in original_target_modifiers:
-            if mod_name in target.modifiers:
-                target.modifiers[mod_name].show_viewport = mod_visibility
-
-        # Restore protected vertex groups (PhysBone/dynamics weights) exactly
-        # as they were before the pre-bind vertex group clear
-        restored_count = restore_vertex_groups(target, protected_snapshot)
-        if restored_count > 0:
-            self.report({'INFO'}, f"Preserved {restored_count} protected vertex group(s) on {target.name}")
-
-        # Return to original mode
-        bpy.ops.object.mode_set(mode=original_mode)
+        finally:
+            if not snapshot_restored:
+                restore_vertex_groups(target, protected_snapshot)
+                self.report({'WARNING'},
+                            "Transfer aborted early; restored protected vertex "
+                            "group(s) from snapshot")
         
         if skipped_count > 0:
             self.report({'INFO'}, f"Transferred {transferred_count} shape keys from {source.name} to {target.name} (skipped {skipped_count} with minimal effect)")
