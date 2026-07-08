@@ -139,6 +139,33 @@ This document explains the key functionality and logic flow of the BASICs Shape 
    - After joining or separating meshes that may have duplicate or missing modifiers
    - For batch fixing multiple character meshes at once
 
+### 8. Smart Polyloop Reduction ("Molt")
+
+Topology-aware polycount reduction that dissolves whole edge loops a human
+artist would judge safe, instead of collapsing arbitrary edges. Full design:
+`docs/molt_design.md`. All judgment logic is bpy-free (`core/`), tested
+outside Blender; `operators/polyloop_ops.py` is thin glue.
+
+**Preview Workflow** (non-destructive):
+1. User clicks Preview Poly Loop Candidates on a mesh
+2. `MESH_OT_preview_polyloop_reduction` reads the mesh into tuple form
+3. `find_loop_candidates()` (core/polyloop_reduction.py) traces coherent loops and scores them (planarity + face angle + weight variation; lower = safer)
+4. The best-scoring loops are selected in Edit Mode for inspection
+
+**Destructive Reduction Workflow** (dissolve-safest and reduce-to-target):
+1. User clicks Dissolve Safest Poly Loop or Reduce Poly Loops To Target
+2. `_refuse_unpreservable_data()` guards the rebuild:
+   - Hard-refuses ONLY absolute (non-relative) shape keys and animation data (drivers/keyframes) on the shape-key datablock — configurations the rebuild cannot restore
+   - Refuses UV maps / color attributes / multi-material face assignments unless `allow_attribute_loss` is enabled (these are genuinely discarded)
+3. The operator collects vertex weights (`_mesh_to_tuples()`) and snapshots shape keys (`_collect_shape_key_state()`: absolute per-vertex coordinates + key metadata + mesh-level state) — both are ALWAYS collected, regardless of scoring toggles
+4. The core dissolves the safest loop(s) (`dissolve_loop()` / `reduce_to_target()` in core/polyloop_dissolve.py), remapping weights AND shape keys through every edit via `core/shape_key_remap.py`
+5. `_write_tuples_to_mesh()` clears the old shape keys, rebuilds the geometry (`clear_geometry()` + `from_pydata`), re-applies remapped weights, and recreates the shape keys (`_apply_shape_key_state()`: original order, relative-key links, slider ranges before values, active/pin state)
+
+**Shape Key Preservation Logic** (stage-4 remap):
+- A loop dissolve only deletes vertices; survivors keep their exact positions
+- Each shape key's absolute coordinates are carried through the same vertex mapping as the base mesh: surviving vertices copy exactly, removed vertices drop their morph data, and (future-proofing) merged vertices would average — which preserves relative-key deltas by linearity
+- The Basis key's remapped coordinates are by construction exactly the reduced base mesh, so the Basis stays consistent
+
 ## Logic Diagram
 
 ```
@@ -177,6 +204,18 @@ User selects objects → Clicks Transfer → SHAPEKEY_OT_transfer_with_surface_d
 Adds Surface Deform modifier → Binds to source → 
 For each shape key: Activate on source → Capture deformation on target → 
 Create shape key on target → Updates UI
+```
+
+### Polyloop Reduction Data Flow (destructive, shape-key aware):
+```
+User selects mesh → Clicks Reduce Poly Loops To Target → 
+MESH_OT_reduce_polyloop_to_target.execute() →
+_refuse_unpreservable_data() (guards) →
+_mesh_to_tuples() + _collect_shape_key_state() →
+reduce_to_target() (core: re-trace, re-score, dissolve safest; remaps
+weights + shape keys via shape_key_remap through every iteration) →
+_write_tuples_to_mesh() (shape_key_clear → clear_geometry → from_pydata →
+re-apply weights → _apply_shape_key_state()) → Updates UI
 ```
 
 ### Armature Bone Deletion Data Flow:

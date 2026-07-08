@@ -35,6 +35,7 @@ orphaned vertices.
 from dataclasses import dataclass
 
 from . import polyloop_reduction
+from . import shape_key_remap
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class DissolveResult:
     merged_faces: int
     faces_before: int
     faces_after: int
+    shape_keys: list = None
 
 
 class DissolveError(ValueError):
@@ -125,7 +127,7 @@ def _arc_excluding_edge(face, start, end):
 
 
 def dissolve_loop(vertices, edges, faces, loop_edge_indices,
-                  vertex_weights=None, dissolve_verts=True):
+                  vertex_weights=None, dissolve_verts=True, shape_keys=None):
     """Dissolve a coherent edge loop from the tuple mesh.
 
     Parameters
@@ -142,6 +144,12 @@ def dissolve_loop(vertices, edges, faces, loop_edge_indices,
     dissolve_verts:
         When true (default) collinear loop vertices left with valence 2 are
         removed from the merged faces, matching Blender's dissolve behaviour.
+    shape_keys:
+        Optional ordered list of shape-key dicts (see
+        :mod:`shape_key_remap`); each key's absolute per-vertex coordinates
+        are carried through the same vertex remap as the base mesh, so
+        surviving vertices keep their exact shape-key positions and removed
+        vertices drop theirs.
 
     Returns
     -------
@@ -249,6 +257,16 @@ def dissolve_loop(vertices, edges, faces, loop_edge_indices,
             if old_index in remap:
                 new_weights[remap[old_index]] = dict(groups_map)
 
+    # Shape keys ride the same vertex remap as the base mesh: a dissolve only
+    # ever deletes vertices (survivors keep their exact positions), so every
+    # new vertex has exactly one source and the remap is a faithful copy.
+    new_shape_keys = None
+    if shape_keys is not None:
+        sources = shape_key_remap.sources_from_vertex_remap(
+            remap, len(new_vertices))
+        new_shape_keys = shape_key_remap.remap_shape_keys(
+            shape_keys, sources, source_vertex_count=len(vertices))
+
     removed_edge_count = len(edges) - len(reindexed_edges)
 
     return DissolveResult(
@@ -261,6 +279,7 @@ def dissolve_loop(vertices, edges, faces, loop_edge_indices,
         merged_faces=merged_faces_count,
         faces_before=faces_before,
         faces_after=len(reindexed_faces),
+        shape_keys=new_shape_keys,
     )
 
 
@@ -381,7 +400,8 @@ def _edges_from_faces(faces):
 def reduce_to_target(vertices, edges, faces, vertex_weights=None,
                      target_faces=None, max_score=None, max_iterations=1000,
                      min_edges=4, max_turn_degrees=75.0,
-                     max_plane_deviation_ratio=None, score_with_weights=True):
+                     max_plane_deviation_ratio=None, score_with_weights=True,
+                     shape_keys=None):
     """Iteratively dissolve the safest loop until a target is met.
 
     This is stage 3 of the design spec: repeatedly re-score the *current* mesh,
@@ -406,7 +426,8 @@ def reduce_to_target(vertices, edges, faces, vertex_weights=None,
     Returns
     -------
     dict with ``vertices``, ``edges``, ``faces``, ``vertex_weights``,
-    ``iterations`` (number of dissolves applied), ``faces_before``,
+    ``shape_keys`` (remapped through every dissolve; ``None`` when none were
+    given), ``iterations`` (number of dissolves applied), ``faces_before``,
     ``faces_after``, and ``stopped_reason``.
     """
     vertices = [tuple(v) for v in vertices]
@@ -417,6 +438,9 @@ def reduce_to_target(vertices, edges, faces, vertex_weights=None,
     # penalty, so disabling weight-aware ranking never destroys deformation
     # weights on a rigged mesh.
     weights = dict(vertex_weights) if vertex_weights is not None else None
+    # Shape keys, like weights, are carried through every dissolve so the
+    # final mesh's key blocks stay index-consistent with its vertices.
+    keys = list(shape_keys) if shape_keys is not None else None
 
     faces_before = len(faces)
     iterations = 0
@@ -457,7 +481,7 @@ def reduce_to_target(vertices, edges, faces, vertex_weights=None,
             try:
                 result = dissolve_loop(
                     vertices, edges, faces, candidate.edge_indices,
-                    vertex_weights=weights)
+                    vertex_weights=weights, shape_keys=keys)
             except DissolveError:
                 continue
             if result.faces_after >= len(faces):
@@ -467,6 +491,7 @@ def reduce_to_target(vertices, edges, faces, vertex_weights=None,
             edges = result.edges
             faces = result.faces
             weights = result.vertex_weights
+            keys = result.shape_keys
             iterations += 1
             applied = True
             break
@@ -480,6 +505,7 @@ def reduce_to_target(vertices, edges, faces, vertex_weights=None,
         "edges": edges,
         "faces": faces,
         "vertex_weights": weights,
+        "shape_keys": keys,
         "iterations": iterations,
         "faces_before": faces_before,
         "faces_after": len(faces),

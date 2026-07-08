@@ -32,12 +32,14 @@ def _load(module_name, filename):
 
 
 # Load the scorer, then a stub ``core`` package so the dissolve module's
-# ``from . import polyloop_reduction`` resolves to it.
+# ``from . import polyloop_reduction`` / ``from . import shape_key_remap``
+# resolve to it.
 reduction = _load("polyloop_reduction", "polyloop_reduction.py")
 _core_pkg = types.ModuleType("core")
 _core_pkg.__path__ = [CORE_DIR]
 sys.modules["core"] = _core_pkg
 sys.modules["core.polyloop_reduction"] = reduction
+shape_key_remap = _load("core.shape_key_remap", "shape_key_remap.py")
 dissolve = _load("core.polyloop_dissolve", "polyloop_dissolve.py")
 
 
@@ -158,6 +160,81 @@ def test_dissolve_remaps_vertex_weights():
     assert result.vertex_weights[0]["G"] == 0.0
     # The dissolved verts (1, 4, 7) contributed no stray weight keys.
     assert len(result.vertex_weights) == len(result.vertices)
+
+
+def make_shape_keys(vertices):
+    """Basis + two relative keys whose coordinates are derived from each
+    vertex's base position, so any surviving vertex's expected key
+    coordinates can be recomputed from its (unchanged) base position alone.
+
+    * Basis: exactly the base positions (Blender's reference key).
+    * "Puff": base + (0, 0, 1) everywhere.
+    * "Lean": Puff + (x, 0, 0) per vertex (a relative chain with a varying
+      per-vertex delta).
+    """
+    basis = [tuple(v) for v in vertices]
+    puff = [(x, y, z + 1.0) for (x, y, z) in vertices]
+    lean = [(2.0 * x, y, z + 1.0) for (x, y, z) in vertices]
+    return [
+        {"name": "Basis", "coordinates": basis, "relative_key": None},
+        {"name": "Puff", "coordinates": puff, "relative_key": "Basis"},
+        {"name": "Lean", "coordinates": lean, "relative_key": "Puff"},
+    ]
+
+
+def assert_shape_keys_track_base(result_vertices, result_keys):
+    """Every surviving vertex keeps its exact shape-key positions.
+
+    The dissolve never moves surviving vertices, so the expected key
+    coordinates can be recomputed from the reduced base mesh.
+    """
+    by_name = {k["name"]: k for k in result_keys}
+    assert [k["name"] for k in result_keys] == ["Basis", "Puff", "Lean"]
+    for key in result_keys:
+        assert len(key["coordinates"]) == len(result_vertices)
+    for i, (x, y, z) in enumerate(result_vertices):
+        assert by_name["Basis"]["coordinates"][i] == (x, y, z)
+        assert by_name["Puff"]["coordinates"][i] == (x, y, z + 1.0)
+        assert by_name["Lean"]["coordinates"][i] == (2.0 * x, y, z + 1.0)
+    # Relative-key metadata passes through untouched.
+    assert by_name["Puff"]["relative_key"] == "Basis"
+    assert by_name["Lean"]["relative_key"] == "Puff"
+
+
+def test_dissolve_remaps_shape_keys():
+    vertices, edges, faces, V = make_grid(2, 2)
+    keys = make_shape_keys(vertices)
+    loop = edge_indices_for(edges, [(V(1, 0), V(1, 1)), (V(1, 1), V(1, 2))])
+    result = dissolve.dissolve_loop(
+        vertices, edges, faces, loop, shape_keys=keys)
+    assert result.removed_vertices == 3
+    assert_shape_keys_track_base(result.vertices, result.shape_keys)
+    # Input keys untouched (still sized to the ORIGINAL mesh).
+    assert all(len(k["coordinates"]) == len(vertices) for k in keys)
+
+
+def test_dissolve_without_shape_keys_returns_none():
+    vertices, edges, faces, V = make_grid(2, 2)
+    loop = edge_indices_for(edges, [(V(1, 0), V(1, 1)), (V(1, 1), V(1, 2))])
+    result = dissolve.dissolve_loop(vertices, edges, faces, loop)
+    assert result.shape_keys is None
+
+
+def test_reduce_to_target_remaps_shape_keys_through_iterations():
+    vertices, edges, faces, _ = make_grid(5, 3)  # 15 quads
+    keys = make_shape_keys(vertices)
+    out = dissolve.reduce_to_target(
+        vertices, edges, faces, target_faces=6, min_edges=3, shape_keys=keys)
+    assert out["iterations"] >= 2                # multiple remap compositions
+    assert out["faces_after"] <= 6
+    assert_shape_keys_track_base(out["vertices"], out["shape_keys"])
+
+
+def test_reduce_to_target_shape_keys_none_when_not_given():
+    vertices, edges, faces, _ = make_grid(3, 2)
+    out = dissolve.reduce_to_target(
+        vertices, edges, faces, target_faces=4, min_edges=3)
+    assert out["shape_keys"] is None
 
 
 def test_reduce_to_target_reaches_face_count():
