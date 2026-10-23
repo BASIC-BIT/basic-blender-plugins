@@ -99,6 +99,37 @@ def test_success():
     assert (len(bpy.data.objects), len(bpy.data.meshes)) == counts
 
 
+def test_shape_key_group_masks_rejected_before_staging():
+    for name in ('Arm_L', 'Bow', 'Chest'):
+        source, target = fixture()
+        key = target.data.shape_keys.key_blocks['Fit']
+        key.vertex_group = name
+        before = (snapshot(source), snapshot(target), key.vertex_group,
+                  [tuple(v.co) for v in key.data], source.hide_get(), target.mode)
+        counts = (len(bpy.data.objects), len(bpy.data.meshes), len(bpy.data.shape_keys))
+        try:
+            refit.refit_clothing_weights(bpy.context, source, target)
+        except ValueError as error:
+            assert 'shape key' in str(error).lower() and name in str(error), str(error)
+        else:
+            raise AssertionError('Expected shape key mask rejection; resulting mask=' + key.vertex_group)
+        assert (snapshot(source), snapshot(target), key.vertex_group,
+                [tuple(v.co) for v in key.data], source.hide_get(), target.mode) == before
+        assert (len(bpy.data.objects), len(bpy.data.meshes), len(bpy.data.shape_keys)) == counts
+
+
+def test_preserved_utility_shape_mask_keeps_evaluated_geometry():
+    source, target = fixture()
+    key = target.data.shape_keys.key_blocks['Fit']
+    key.vertex_group, key.value = 'Mask', 1.
+    def points():
+        bpy.context.view_layer.update()
+        return [tuple(v.co) for v in target.evaluated_get(bpy.context.evaluated_depsgraph_get()).data.vertices]
+    before = points()
+    refit.refit_clothing_weights(bpy.context, source, target)
+    assert key.vertex_group == 'Mask' and points() == before
+
+
 def failure_test(options=None, transfer_result=None, commit_failure=False):
     source, target = fixture()
     before = snapshot(target)

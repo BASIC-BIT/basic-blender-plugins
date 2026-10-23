@@ -196,10 +196,23 @@ the baseline. Rig labels, ownership, current pose bases and creator display,
 selection or collection changes (including B-Bone display widths) remain allowed.
 
 The body must have a viewport-enabled Armature modifier targeting the selected
-rig. It needs positive weights matching deform bones, or enabled bone envelopes;
-an effective modifier mask must allow some influence. A body without that
+rig. It needs positive weights matching deform bones, or native bone envelopes
+that actually reach a vertex; an effective modifier mask must allow influence.
+Envelope reach is checked in rig rest space. If acceptance depends on envelopes
+with shape keys or multi-modifier input, use positive deform weights without
+envelope multiplication instead. Ordinary weighted shape-key bodies remain
+supported. A body without that
 supported deformation path stops before any copies are allocated. Clothing
 weight defects remain findings in the report rather than this body-input check.
+
+Captured baseline scenes retain immutable integrity evidence for their complete
+copied dependency closure. Editing frozen geometry, weights, keys, drivers,
+transforms, rig data, frame or unit scale requires an independent capture.
+Renaming and ordinary display/selection changes remain allowed. Missing owner
+scenes or integrity metadata stop validation before allocation. To preserve old
+frozen geometry, select its garments and explicitly capture a new baseline with
+the intended body and rig. Capture preserves the old scene and evidence; reading
+an old baseline never adds or repairs its accepted integrity state.
 
 Retained review copies are checked before preview changes any pose, shape value
 or display state. Manual changes to their transforms, rest data, weights, shape
@@ -209,7 +222,8 @@ Ordinary selection, wire/display settings and unpinned active-key selection
 remain allowed. Successful controlled replay records the newly accepted state;
 repeated preview and saved-file reopen use that state. Older retained reports
 without review-integrity metadata require another validation run. Source
-fingerprint format v2 and existing baseline captures remain valid.
+fingerprint format v2 remains unchanged. Baselines without immutable integrity
+metadata require the explicit independent recapture described above.
 
 Editing either Before/After mesh clears that pair's confirmation. Changing the
 selected rig or a mapping field clears mapping confirmation; its saved signature

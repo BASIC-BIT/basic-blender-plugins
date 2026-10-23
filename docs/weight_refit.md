@@ -41,6 +41,10 @@ body mappings, cancellation, incompatible utility names, posed rigs, shared
 mesh data, or impossible limits leave the clothing unchanged. A failed commit
 restores the original group snapshot. The operation is undoable.
 
+Shape keys masked by an original or incoming deform group stop refitting before
+staging, because rebuilding weights would change the key's evaluated geometry.
+Preserve or remove that mask explicitly first. Utility-only masks remain intact.
+
 The existing **Robust Weight Transfer (Protected Groups)** remains available
 through Blender operator search and its original Python identifier.
 Shape-key transfer retains its existing raw-weight preservation rules.

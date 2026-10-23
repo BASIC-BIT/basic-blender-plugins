@@ -24,6 +24,7 @@
         "scripts/verify_clothing_inactive_sources.py",
         "scripts/verify_clothing_inputs_blender.py",
         "scripts/verify_clothing_review_state.py",
+        "scripts/verify_clothing_baseline_boundaries.py",
         "scripts/clothing_session_reopen.py",
         "scripts/clothing_export_fixture.py",
         "scripts/verify_clothing_export_blender.py",

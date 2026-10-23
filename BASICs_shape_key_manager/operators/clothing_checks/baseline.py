@@ -4,6 +4,7 @@ import bpy
 from .inputs import preflight, owned_copies, remove_scene, fingerprint_inputs, logical_id, fingerprint
 from .identities import resolve_bindings, retain_bindings, capture_source_ids, retain_source_ids
 from .fingerprints import FINGERPRINT_FORMAT
+from .baseline_state import capture_baseline_state
 
 
 def capture_baseline(context, body, rig, clothing):
@@ -30,6 +31,7 @@ def capture_baseline(context, body, rig, clothing):
         copies[body]['_basic_clothing_role'] = 'BODY'
         copies[rig]['_basic_clothing_role'] = 'RIG'
         retain_bindings(scene, body, body_id, [(copies[ref], candidate, identity) for ref, candidate, identity in pairs])
+        capture_baseline_state(scene)
         return {'scene': scene.name, 'owner': owner, 'body': copies[body].name,
                 'rig': copies[rig].name, 'pairs': rows, 'inputs': fingerprint_inputs(objects, source_ids)}
     except Exception:

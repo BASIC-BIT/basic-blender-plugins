@@ -53,6 +53,11 @@ def refit_clothing_weights(context, source, target, *, vert_mapping='POLYINTERP_
     source_deform = deform_groups(source)
     if not source_deform:
         raise ValueError('The body has no deform-bone weight groups')
+    if target.data.shape_keys:
+        for key in target.data.shape_keys.key_blocks:
+            if key.vertex_group in original_deform | source_deform:
+                raise ValueError(f'Shape key {key.name} uses refit-dependent group {key.vertex_group}; '
+                                 'preserve or remove that shape key mask before refitting')
     preserved = {g.name for g in target.vertex_groups
                  if g.lock_weight and g.name in original_deform}
     utilities = set(target.vertex_groups.keys()) - original_deform

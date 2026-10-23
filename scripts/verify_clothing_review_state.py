@@ -50,6 +50,7 @@ def body_deformation():
     for kind in ('weights', 'envelopes', 'render_disabled', 'inverted_mask', 'missing_mask'):
         body, rig, pairs, mapping, settings = fixture.setup('ValidBody' + kind, captured=True)
         if kind == 'envelopes':
+            body.shape_key_clear()
             body.modifiers[0].use_vertex_groups = False
             body.modifiers[0].use_bone_envelopes = True
             # Capture after changing the supported evaluation configuration.

@@ -154,7 +154,6 @@ def verify_captured_rig_semantics():
     reference = bpy.data.objects[record['pairs'][0]['reference']]
     frozen = reference.modifiers[0].object
     frozen.name, frozen.data.name = 'Labelled captured rig', 'Labelled captured data'
-    frozen['review_label'] = 'not deformation'
     probe, _ = fixture.skinned_probe(rig)
     def probe_coordinates():
         bpy.context.view_layer.update()

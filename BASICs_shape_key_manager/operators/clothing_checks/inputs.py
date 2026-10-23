@@ -1,9 +1,11 @@
 """Read-only preflight, content fingerprints and owned dependency copies."""
 import re
 import threading
+from math import sqrt
 import bpy
 from .fingerprints import fingerprint, fingerprint_inputs, evaluate_sources, bone_deformation_state, FINGERPRINT_FORMAT
 from .identities import logical_id, resolve_bindings, read_source_ids
+from .baseline_state import validate_baseline_state
 
 
 def main_thread():
@@ -20,11 +22,38 @@ def data_blocks(objects):
     return list(dict.fromkeys(blocks))
 
 
+def envelope_factor(bone, point):
+    """Blender 5.1.2 armature_deform.cc unscaled distfactor_to_bone."""
+    if not bone.use_envelope_multiply:
+        return bone.evaluate_envelope(point)
+    # RNA evaluate_envelope scales radii by envelope_weight with MULT_VG_ENV;
+    # native modifier deformation uses unscaled radii in both influence paths.
+    axis = bone.tail_local - bone.head_local
+    length = axis.length
+    if length:
+        axis /= length
+    offset = point - bone.head_local
+    height = offset.dot(axis)
+    if height < 0:
+        distance_squared, radius = offset.length_squared, bone.head_radius
+    elif height > length:
+        distance_squared, radius = (point - bone.tail_local).length_squared, bone.tail_radius
+    else:
+        distance_squared = offset.length_squared - height * height
+        radius = bone.head_radius + (bone.tail_radius - bone.head_radius) * (height / length if length else 0)
+    if distance_squared < radius * radius:
+        return 1.
+    falloff = bone.envelope_distance
+    if falloff == 0 or distance_squared >= (radius + falloff) ** 2:
+        return 0.
+    return 1. - (sqrt(distance_squared) - radius) ** 2 / (falloff * falloff)
+
+
 def body_deforms(body, rig):
-    """Require the supported viewport deformation path, not a static body proxy."""
-    deform = {bone.name for bone in rig.data.bones if bone.use_deform}
-    groups = {group.index for group in body.vertex_groups if group.name in deform}
-    envelopes = any(bone.use_deform and bone.envelope_weight > 0 for bone in rig.data.bones)
+    """Require native positive influence, querying envelopes in rig rest space."""
+    deform = {bone.name: bone for bone in rig.data.bones if bone.use_deform}
+    groups = {group.index: deform[group.name] for group in body.vertex_groups if group.name in deform}
+    unsupported = False
     for mod in body.modifiers:
         if mod.type != 'ARMATURE' or mod.object != rig or not mod.show_viewport:
             continue
@@ -34,10 +63,28 @@ def body_deforms(body, rig):
                 amount = next((g.weight for g in vertex.groups if g.group == mask.index), 0.)
                 if (1 - amount if mod.invert_vertex_group else amount) <= 0:
                     continue
-            if mod.use_bone_envelopes and envelopes:
+            weights = [(groups[g.group], g.weight) for g in vertex.groups
+                       if mod.use_vertex_groups and g.group in groups]
+            contribution = sum(weight for bone, weight in weights if not bone.use_envelope_multiply)
+            if contribution > .0001:  # Blender's native armature contribution threshold.
                 return True
-            if mod.use_vertex_groups and any(g.group in groups and g.weight > 0 for g in vertex.groups):
+            needed = any(bone.use_envelope_multiply and weight > 0 for bone, weight in weights)
+            if not needed and (weights or not mod.use_bone_envelopes):
+                continue
+            if body.data.shape_keys or mod.use_multi_modifier:
+                unsupported = True
+                continue
+            point = rig.matrix_world.inverted() @ body.matrix_world @ vertex.co
+            if weights:
+                contribution += sum(weight * envelope_factor(bone, point)
+                                    for bone, weight in weights if bone.use_envelope_multiply)
+            else:
+                contribution = sum(bone.envelope_weight * envelope_factor(bone, point) for bone in deform.values())
+            if contribution > .0001:
                 return True
+    if unsupported:
+        raise ValueError('body envelope reach with shape keys or multi-modifier input is unsupported; '
+                         'use positive deform weights without envelope multiplication')
     return False
 
 
@@ -70,6 +117,23 @@ def preflight(body, rig, pairs, *, capturing=False):
     normalized = [(ref, candidate, identity) for (ref, candidate, _), identity in zip(normalized, identities)]
     if len({row[2] for row in normalized}) != len(normalized):
         raise ValueError('duplicate stable garment identities across pairs')
+    baseline_scenes, checked = {}, set()
+    if not capturing:
+        for ref in references:
+            owners = [s for s in ref.users_scene if s.get('_basic_clothing_kind') == 'BASELINE']
+            retained = owners or any(ref.get(key) for key in ('_basic_clothing_baseline_body',
+                '_basic_clothing_baseline_body_id', '_basic_clothing_fingerprint_format')) or (
+                ref.get('_basic_clothing_owner') and ref.get('_basic_clothing_role') == 'REFERENCE')
+            if not retained:
+                continue
+            scene = next((s for s in owners if s.get('_basic_clothing_owner') == ref.get('_basic_clothing_owner')), None)
+            if (scene is None or not ref.get('_basic_clothing_baseline_body') or
+                    ref.get('_basic_clothing_fingerprint_format') != FINGERPRINT_FORMAT):
+                raise ValueError('retained baseline owner or metadata is missing/legacy; recapture an independent baseline')
+            if scene not in checked:
+                validate_baseline_state(scene)
+                checked.add(scene)
+            baseline_scenes[ref] = scene
     objects = list(dict.fromkeys([body, rig, *[o for row in normalized for o in row[:2]]]))
     baseline_dependencies = set()
     # A captured key driver may depend on the independently frozen body/rig.
@@ -123,9 +187,6 @@ def preflight(body, rig, pairs, *, capturing=False):
                              ' before capture or validation; CURRENT uses the evaluated numeric blend')
         if obj.type == 'ARMATURE' and any(b.bbone_segments > 1 for b in obj.data.bones):
             raise ValueError('segmented B-Bone deformation is unsupported')
-    if not body_deforms(body, rig):
-        raise ValueError('body requires a viewport-enabled Armature modifier targeting the selected rig '
-                         'with positive deform weights or enabled bone envelopes')
     for block in blocks:
         animation = block.animation_data
         if not animation:
@@ -156,21 +217,20 @@ def preflight(body, rig, pairs, *, capturing=False):
     # Native world matrices of freshly opened inactive scenes are lazy caches.
     # Validate supported dependencies first, then materialize before any comparison.
     evaluate_sources(objects)
+    if not body_deforms(body, rig):
+        raise ValueError('body requires a viewport-enabled Armature modifier targeting the selected rig '
+                         'with positive deform weights or enabled bone envelopes')
     rig_signature = lambda r: ([list(row) for row in r.matrix_world], r.data.pose_position,
                                bone_deformation_state(r.data))
     signature = rig_signature(rig)
     if any(rig_signature(target) != signature for target in rig_targets):
         raise ValueError('reference Armature modifier has incompatible rig deformation/rest data; recapture the baseline')
-    for ref in references:
-        # Explicit capture creates new evidence, including from frozen legacy inputs.
-        if capturing or not ref.get('_basic_clothing_baseline_body'):
-            continue
-        scene = next((s for s in ref.users_scene if s.get('_basic_clothing_kind') == 'BASELINE' and
-                      s.get('_basic_clothing_owner') == ref.get('_basic_clothing_owner')), None)
-        if scene is None or ref.get('_basic_clothing_fingerprint_format') != FINGERPRINT_FORMAT:
-            raise ValueError('legacy baseline fingerprints; recapture the baseline before validation')
+    validated = {}
+    for ref, scene in baseline_scenes.items():
+        if scene not in validated:
+            validated[scene] = fingerprint(body, read_source_ids(scene))
         # Incremental captures each retain their own identity context.
-        if ref['_basic_clothing_baseline_body'] != fingerprint(body, read_source_ids(scene)):
+        if ref['_basic_clothing_baseline_body'] != validated[scene]:
             raise ValueError('body changed after baseline capture; capture a separate body comparison')
     return normalized, objects
 

@@ -319,11 +319,13 @@ def pose_dependent_current():
 
 
 def nonneutral_preview():
-    body, rig, pairs, mapping, settings = setup('Preview', captured=True)
+    body, rig, pairs, mapping, settings = setup('Preview')
     # Make actual skinning depend on several moving ancestors, not only hips.
     for obj in [pairs[0]['reference'], pairs[0]['candidate']]:
         obj.vertex_groups.clear()
         obj.vertex_groups.new(name='left_forearm').add([0, 1, 2], 1, 'REPLACE')
+    captured = baseline.capture_baseline(bpy.context, body, rig, [pairs[0]['candidate']])
+    pairs[0]['reference'] = bpy.data.objects[captured['pairs'][0]['reference']]
     worker = session.ValidationSession(bpy.context, body, rig, pairs, mapping, settings)
     assert not worker.step(), worker.report['errors']
     expected = {role: _geometry(bpy.context, worker.scene, obj) for obj in worker.scene.objects
