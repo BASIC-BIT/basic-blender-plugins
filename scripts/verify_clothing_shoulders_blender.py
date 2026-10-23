@@ -17,6 +17,7 @@ assert bpy.app.background
 
 
 def run():
+    verify_captured_rig_semantics()
     verify_root_upper_arm()
     scene = bpy.context.scene
     rig = fixture.fixture('ShoulderFixture', roll=37, short_tails=True)
@@ -141,6 +142,88 @@ def run():
     verify_independent_controls(rig, mapping, angled, scene)
     verify_pose_induced_crossing(rig, mapping, scene)
     print('CLOTHING_SHOULDERS_OK', len(cases))
+
+
+def verify_captured_rig_semantics():
+    spec = importlib.util.spec_from_file_location('rig_capture_fixture', ROOT / 'scripts/verify_clothing_checks_blender.py')
+    capture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(capture)
+    rig = fixture.fixture('RigSemantics', roll=37, short_tails=True)
+    body, candidate = [capture.mesh(name, rig) for name in ('RigSemanticsBody', 'RigSemanticsAfter')]
+    record = capture.baseline.capture_baseline(bpy.context, body, rig, [candidate])
+    reference = bpy.data.objects[record['pairs'][0]['reference']]
+    frozen = reference.modifiers[0].object
+    frozen.name, frozen.data.name = 'Labelled captured rig', 'Labelled captured data'
+    frozen['review_label'] = 'not deformation'
+    probe, _ = fixture.skinned_probe(rig)
+    def probe_coordinates():
+        bpy.context.view_layer.update()
+        return [tuple(v.co) for v in probe.evaluated_get(bpy.context.view_layer.depsgraph).data.vertices]
+    width_before = probe_coordinates()
+    rig.data.bones['left_upper_arm'].bbone_x += .12
+    rig.data.bones['left_upper_arm'].bbone_z += .13
+    assert probe_coordinates() == width_before, 'display widths affected evaluated skinned geometry'
+    rig.data.display_type = 'STICK'
+    rig.data.bones['left_upper_arm'].display_type = 'STICK'
+    rig.data.bones['left_upper_arm'].show_wire = True
+    rig.data.bones['left_upper_arm'].hide_select = True
+    rig.data.bones.active = rig.data.bones['left_hand']
+    rig.data.collections.new('Creator display collection').assign(rig.data.bones['left_upper_arm'])
+    rig.pose.bones['chest'].rotation_mode = 'XYZ'
+    rig.pose.bones['chest'].rotation_euler.x = .1
+    pairs = [dict(reference=reference, candidate=candidate, confirmed=True)]
+    sources = list(dict.fromkeys([body, rig, candidate, *bpy.data.scenes[record['scene']].objects]))
+    before = capture.session.fingerprint_inputs(sources)
+    run = lambda: capture.session.ValidationSession(bpy.context, body, rig, pairs, fixture.confirmed(rig), {})
+    worker = run()
+    worker.cancel()
+    assert capture.session.fingerprint_inputs(sources) == before, 'labelled/posed/display-only copy changed sources'
+    legacy = lambda obj: ([list(row) for row in obj.matrix_world],
+                         [(b.name, [list(row) for row in b.matrix_local], b.use_deform) for b in obj.data.bones])
+    original_legacy = legacy(frozen)
+    counts = lambda: tuple(len(getattr(bpy.data, name)) for name in
+                           ('objects', 'meshes', 'armatures', 'shape_keys', 'scenes', 'actions'))
+    def reject_changed(label):
+        assert legacy(rig) == original_legacy, (label, 'fixture changed the old signature')
+        unchanged, allocations = capture.session.fingerprint_inputs(sources), counts()
+        assert unchanged[rig.name_full] != before[rig.name_full], (label, 'rig fingerprint missed deformation change')
+        capture.reject(run, 'incompatible rig')
+        assert counts() == allocations, (label, 'rejection allocated native data')
+        assert capture.session.fingerprint_inputs(sources) == unchanged, (label, 'rejection changed source data')
+    def reparent(name):
+        bpy.context.view_layer.objects.active = rig
+        rig.select_set(True)
+        bpy.ops.object.mode_set(mode='EDIT')
+        rig.data.edit_bones['right_upper_arm'].parent = rig.data.edit_bones[name]
+        bpy.ops.object.mode_set(mode='OBJECT')
+        rig.select_set(False)
+    reparent('spine')
+    reject_changed('parent with fixed rest matrices')
+    reparent('chest')
+    bone = rig.data.bones['left_upper_arm']
+    mutations = [('inherit_scale', 'NONE'), ('use_inherit_rotation', False), ('use_local_location', False),
+                 ('use_relative_parent', True), ('use_envelope_multiply', True),
+                 ('head_radius', bone.head_radius + .1), ('tail_radius', bone.tail_radius + .1),
+                 ('envelope_distance', bone.envelope_distance + .1), ('envelope_weight', bone.envelope_weight + .1),
+                 ('bbone_curveinx', .125), ('bbone_rollin', .125), ('bbone_easein', bone.bbone_easein + .1),
+                 ('bbone_scalein', (1.1, 1., 1.)), ('bbone_handle_use_scale_start', (True, False, False)),
+                 ('bbone_handle_use_ease_start', True), ('bbone_custom_handle_start', rig.data.bones['SecondaryA']),
+                 ('use_endroll_as_inroll', True), ('use_scale_easing', True)]
+    for name, value in mutations:
+        previous = getattr(bone, name)
+        if getattr(bone.bl_rna.properties[name], 'is_array', False):
+            previous = tuple(previous)
+        assert previous != value, (name, 'fixture mutation is a no-op')
+        setattr(bone, name, value)
+        reject_changed(name)
+        setattr(bone, name, previous)
+    rig.data.pose_position = 'REST'
+    reject_changed('pose_position')
+    rig.data.pose_position = 'POSE'
+    assert capture.session.fingerprint_inputs(sources) == before, 'restoring rig changes did not restore source state'
+    worker = run()
+    worker.cancel()
+    print('CAPTURED_RIG_SEMANTICS_OK parent=1 bone_fields=18 pose_position=1 metadata_accepted=1')
 
 
 def verify_root_upper_arm():

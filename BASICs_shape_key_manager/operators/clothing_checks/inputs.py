@@ -2,7 +2,7 @@
 import re
 import threading
 import bpy
-from .fingerprints import fingerprint, fingerprint_inputs, evaluate_sources
+from .fingerprints import fingerprint, fingerprint_inputs, evaluate_sources, bone_deformation_state
 from .identities import logical_id, resolve_bindings
 
 
@@ -132,12 +132,11 @@ def preflight(body, rig, pairs):
     # Native world matrices of freshly opened inactive scenes are lazy caches.
     # Validate supported dependencies first, then materialize before any comparison.
     evaluate_sources(objects)
-    rig_signature = lambda r: ([list(row) for row in r.matrix_world],
-                               [(b.name, [list(row) for row in b.matrix_local], b.use_deform)
-                                for b in r.data.bones])
+    rig_signature = lambda r: ([list(row) for row in r.matrix_world], r.data.pose_position,
+                               bone_deformation_state(r.data))
     signature = rig_signature(rig)
     if any(rig_signature(target) != signature for target in rig_targets):
-        raise ValueError('reference Armature modifier has incompatible rig rest frames')
+        raise ValueError('reference Armature modifier has incompatible rig deformation/rest data; recapture the baseline')
     baselines = [ref['_basic_clothing_baseline_body'] for ref in references if ref.get('_basic_clothing_baseline_body')]
     if baselines:
         body_fingerprint = fingerprint(body)

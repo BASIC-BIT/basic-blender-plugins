@@ -36,6 +36,34 @@ def result(clipping):
 
 
 class ClothingReportingTests(unittest.TestCase):
+    def test_bone_deformation_state_excludes_creator_display_metadata(self):
+        def prop(name, kind='FLOAT', readonly=False, array=False):
+            return SimpleNamespace(identifier=name, type=kind, is_readonly=readonly, is_array=array)
+        bone = SimpleNamespace(name='Arm', parent=SimpleNamespace(name='Chest'),
+                               matrix_local=[[1., 0.], [0., 1.]], length=1., use_connect=False,
+                               inherit_scale='FULL', use_relative_parent=False, envelope_weight=1.,
+                               bbone_scalein=[1., 1., 1.], bbone_custom_handle_start=None,
+                               bbone_custom_handle_end=None, show_wire=False, select=False,
+                               collections=[object()], children=[object()], bbone_x=.1, bbone_z=.1)
+        bone.bl_rna = SimpleNamespace(properties=[prop('inherit_scale', 'ENUM'),
+            prop('use_relative_parent', 'BOOLEAN'), prop('envelope_weight'),
+            prop('bbone_scalein', array=True), prop('show_wire', 'BOOLEAN'), prop('select', 'BOOLEAN'),
+            prop('collections', 'COLLECTION', True), prop('children', 'COLLECTION', True),
+            prop('bbone_x'), prop('bbone_z')])
+        data = SimpleNamespace(bones=[bone])
+        initial = fingerprints.bone_deformation_state(data)
+        bone.show_wire, bone.select, bone.collections = True, True, []
+        bone.bbone_x, bone.bbone_z = .5, .6
+        self.assertEqual(fingerprints.bone_deformation_state(data), initial)
+        for field, value in [('parent', None), ('use_connect', True), ('use_relative_parent', True),
+                             ('inherit_scale', 'NONE'), ('envelope_weight', .5),
+                             ('bbone_scalein', [1.1, 1., 1.]),
+                             ('bbone_custom_handle_start', SimpleNamespace(name='Handle'))]:
+            previous = getattr(bone, field)
+            setattr(bone, field, value)
+            self.assertNotEqual(fingerprints.bone_deformation_state(data), initial, field)
+            setattr(bone, field, previous)
+
     def test_report_integrity_detects_edits_and_ignores_its_previous_hash(self):
         report = {'id': 'fixture', 'settings': {'clearance_m': .001}}
         with self.assertRaises(ValueError):

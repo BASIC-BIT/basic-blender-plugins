@@ -45,11 +45,11 @@ def _properties(block):
     return {k: plain(v) for k, v in block.items()}
 
 
-def _rna_settings(value):
+def _rna_settings(value, exclude=()):
     """Native curve/driver modifier authoring fields, including envelope collections."""
     result = {}
     for prop in value.bl_rna.properties:
-        if (prop.identifier == 'rna_type' or prop.type == 'POINTER' or
+        if (prop.identifier in exclude or prop.identifier == 'rna_type' or prop.type == 'POINTER' or
                 prop.is_readonly and prop.type != 'COLLECTION'):
             continue
         item = getattr(value, prop.identifier)
@@ -62,6 +62,23 @@ def _rna_settings(value):
         elif isinstance(item, (str, bool, int, float)):
             result[prop.identifier] = item
     return result
+
+
+def bone_deformation_state(data):
+    """Rest/deformation semantics shared by captured-rig compatibility and staleness.
+
+    Writable Bone RNA includes inheritance, envelopes and B-Bone authoring fields.
+    Ignore creator display/selection/collection state; keep named handle references
+    without object/datablock identity so independently labelled copies still match.
+    """
+    display = {'name', 'children', 'collections', 'color', 'display_type', 'show_wire',
+               'hide', 'hide_select', 'select', 'select_head', 'select_tail', 'layers', 'bbone_x', 'bbone_z'}
+    return [{'name': bone.name, 'parent': bone.parent.name if bone.parent else None,
+             'matrix_local': [list(row) for row in bone.matrix_local], 'length': bone.length,
+             'use_connect': bone.use_connect, 'settings': _rna_settings(bone, display),
+             'handles': {end: handle.name if (handle := getattr(bone, 'bbone_custom_handle_' + end, None)) else None
+                         for end in ('start', 'end')}}
+            for bone in sorted(data.bones, key=lambda item: item.name)]
 
 
 def _curve_settings(curve):
@@ -168,10 +185,7 @@ def _fingerprint(obj):
             values['key_properties'] = _properties(mesh.shape_keys)
             values['relative'] = mesh.shape_keys.use_relative
     if obj.type == 'ARMATURE':
-        values['bones'] = [[b.name, b.parent.name if b.parent else None, b.use_deform,
-                            [list(r) for r in b.matrix_local], b.length, b.inherit_scale,
-                            b.use_inherit_rotation, b.use_local_location, b.head_radius, b.tail_radius,
-                            b.envelope_distance, b.envelope_weight, b.bbone_segments] for b in obj.data.bones]
+        values['bones'] = bone_deformation_state(obj.data)
         values['pose'] = [[p.name, [list(r) for r in p.matrix_basis], p.bbone_curveinx, p.bbone_curveoutx,
                            p.bbone_curveinz, p.bbone_curveoutz, p.bbone_rollin, p.bbone_rollout,
                            list(p.bbone_scalein), list(p.bbone_scaleout), [c.type for c in p.constraints]]

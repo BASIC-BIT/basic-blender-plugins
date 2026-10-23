@@ -189,6 +189,12 @@ closure. Compatible captured reference rigs are accepted, then both sides use
 one shared copied evaluation rig. Changes to a captured baseline body require a
 separate capture rather than silently changing its comparison reference.
 
+Captured rig compatibility compares world/rest matrices, bone hierarchy and
+connection, inheritance, envelopes, B-Bone deformation settings and named handles,
+and the armature's Pose/Rest evaluation mode. Changing these requires recapturing
+the baseline. Rig labels, ownership, current pose bases and creator display,
+selection or collection changes (including B-Bone display widths) remain allowed.
+
 Explicit shape endpoints are checked against their effective evaluated values
 after native drivers and clamping. An unrealized value stops the run with the
 object, role, key, requested value and actual value in the report. CURRENT may use
