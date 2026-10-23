@@ -49,9 +49,13 @@ def envelope_factor(bone, point):
     return 1. - (sqrt(distance_squared) - radius) ** 2 / (falloff * falloff)
 
 
-def body_deforms(body, rig):
+def body_deforms(body, rig, posed_bones=None):
     """Require native positive influence, querying envelopes in rig rest space."""
     deform = {bone.name: bone for bone in rig.data.bones if bone.use_deform}
+    eligible = set(deform)
+    if posed_bones is not None:
+        eligible = {name for name, bone in deform.items()
+                    if any(parent.name in posed_bones for parent in (bone, *bone.parent_recursive))}
     groups = {group.index: deform[group.name] for group in body.vertex_groups if group.name in deform}
     unsupported = False
     for mod in body.modifiers:
@@ -65,9 +69,14 @@ def body_deforms(body, rig):
                     continue
             weights = [(groups[g.group], g.weight) for g in vertex.groups
                        if mod.use_vertex_groups and g.group in groups]
-            contribution = sum(weight for bone, weight in weights if not bone.use_envelope_multiply)
-            if contribution > .0001:  # Blender's native armature contribution threshold.
+            base = [(bone, weight) for bone, weight in weights if not bone.use_envelope_multiply]
+            contribution = sum(weight for bone, weight in base)
+            influence = sum(weight for bone, weight in base if bone.name in eligible)
+            if contribution > .0001 and influence > 0:  # Native total contribution threshold.
                 return True
+            # Preserve every real VG assignment: even unposed assignments suppress fallback.
+            if weights and not any(weight > 0 and bone.name in eligible for bone, weight in weights):
+                continue
             needed = any(bone.use_envelope_multiply and weight > 0 for bone, weight in weights)
             if not needed and (weights or not mod.use_bone_envelopes):
                 continue
@@ -76,11 +85,15 @@ def body_deforms(body, rig):
                 continue
             point = rig.matrix_world.inverted() @ body.matrix_world @ vertex.co
             if weights:
-                contribution += sum(weight * envelope_factor(bone, point)
-                                    for bone, weight in weights if bone.use_envelope_multiply)
+                factors = [(bone, weight * envelope_factor(bone, point))
+                           for bone, weight in weights if bone.use_envelope_multiply]
+                contribution += sum(weight for bone, weight in factors)
+                influence += sum(weight for bone, weight in factors if bone.name in eligible)
             else:
-                contribution = sum(bone.envelope_weight * envelope_factor(bone, point) for bone in deform.values())
-            if contribution > .0001:
+                factors = [(bone, bone.envelope_weight * envelope_factor(bone, point)) for bone in deform.values()]
+                contribution = sum(weight for bone, weight in factors)
+                influence = sum(weight for bone, weight in factors if bone.name in eligible)
+            if contribution > .0001 and influence > 0:
                 return True
     if unsupported:
         raise ValueError('body envelope reach with shape keys or multi-modifier input is unsupported; '
@@ -88,7 +101,7 @@ def body_deforms(body, rig):
     return False
 
 
-def preflight(body, rig, pairs, *, capturing=False):
+def preflight(body, rig, pairs, *, capturing=False, posed_bones=None):
     main_thread()
     if body is None or body.type != 'MESH' or rig is None or rig.type != 'ARMATURE':
         raise ValueError('choose a mesh body and an armature rig')
@@ -217,9 +230,10 @@ def preflight(body, rig, pairs, *, capturing=False):
     # Native world matrices of freshly opened inactive scenes are lazy caches.
     # Validate supported dependencies first, then materialize before any comparison.
     evaluate_sources(objects)
-    if not body_deforms(body, rig):
+    if not body_deforms(body, rig, posed_bones):
         raise ValueError('body requires a viewport-enabled Armature modifier targeting the selected rig '
-                         'with positive deform weights or enabled bone envelopes')
+                         'with positive deform weights or enabled bone envelopes' +
+                         (' contributing to the posed mapping or its descendants' if posed_bones is not None else ''))
     rig_signature = lambda r: ([list(row) for row in r.matrix_world], r.data.pose_position,
                                bone_deformation_state(r.data))
     signature = rig_signature(rig)

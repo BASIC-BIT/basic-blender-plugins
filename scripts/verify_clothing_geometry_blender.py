@@ -156,6 +156,33 @@ def test_self_intersection_and_bad_orientation():
     assert not bad['closed']
 
 
+def test_volume_rejects_crossing_beyond_shared_vertex():
+    faces=[(3,0,1),(3,1,2),(3,2,0),(4,1,0),(4,2,1),(4,0,2)]
+    base=[(0,0,0),(1,0,0),(0,1,0)]
+    for label,tips,overlaps,strict in (
+            ('crossing',[(1,-1,1),(-1,1,2)],{(2,3)},True),
+            ('away-contact',[(2,0,1),(-2,0,2)],{(0,4),(2,3)},False)):
+        crossed=snapshot(mesh('shared-vertex-'+label,base+tips,faces))
+        assert crossed['closed']
+        assert {(i,j) for i,j in crossed['bvh'].overlap(crossed['bvh']) if i<j}==overlaps
+        assert all(queries.crossing(crossed,i,crossed,j,1e-8)==strict for i,j in overlaps)
+        assert not queries.self_pairs(crossed,contacts=True),'garment SELF scope must remain nonadjacent'
+        assert geometry.analyze_self(crossed)['absolute_fit']=='CLEAR'
+        assert not queries.volume_support(crossed),'nonzero intersection beyond a shared vertex cannot support containment'
+        outside=snapshot(mesh('shared-vertex-probe-'+label,[(3,3,3),(3.1,3,3),(3,3.1,3)],[(0,1,2)]))
+        result=geometry.analyze_pair(crossed,outside,primary_id=outside['id'])
+        assert result['containment'][outside['id']]=='UNKNOWN' and result['absolute_fit']=='INDETERMINATE'
+    valid=snapshot(mesh('valid-shared-vertex-volume',base+[(.2,.2,1),(.2,.2,-1)],faces))
+    assert queries.volume_support(valid),'ordinary closed shared-vertex/edge topology must remain supported'
+    for label,points,triangles in (
+            ('vertex',base+[(-1,0,1),(0,-1,1)],[(0,1,2),(0,3,4)]),
+            ('edge',base+[(0,0,1)],[(0,1,2),(1,0,3)]),
+            ('flat-edge',base+[(0,-1,0)],[(0,1,2),(1,0,3)])):
+        contact=snapshot(mesh('legitimate-'+label,points,triangles))
+        assert not contact['bvh'].overlap(contact['bvh']),label
+        assert geometry.analyze_self(contact)['absolute_fit']=='CLEAR',label
+
+
 def test_near_edge_ray_ambiguity():
     # First deterministic ray exits exactly through the cube's top/right edge.
     point = (0, 1 - .3713906763541037, 0)
@@ -219,7 +246,7 @@ def test_bounded_cached_probes_and_volume_validation():
             assert repeated is probes and repeated_count == count
         assert vectors.call_count == initial_count
     body = snapshot(cube('cached-volume'))
-    with patch.object(queries, 'self_pairs', wraps=queries.self_pairs) as checked:
+    with patch.object(queries, '_volume_support', wraps=queries._volume_support) as checked:
         for _ in range(9):
             assert queries.volume_support(body)
         assert checked.call_count == 1, checked.call_count
@@ -236,7 +263,7 @@ def test_topology_reused_without_stale_pose_points():
     assert after['_probe_layout'] is before['_probe_layout']
     assert old_probes is not new_probes
     assert abs(new_probes[0][0].x - old_probes[0][0].x - 3) < 1e-6
-    with patch.object(queries, 'self_pairs', wraps=queries.self_pairs) as checked:
+    with patch.object(queries, '_volume_support', wraps=queries._volume_support) as checked:
         assert queries.volume_support(after)
         assert checked.call_count == 1
 
@@ -305,7 +332,8 @@ for test in (test_outside_vertices_crossing_and_contact, test_body_and_garment_s
              test_native_bvh_rejects_disjoint_straddling_triangles,
              test_buried_reversed_open_and_density,
              test_fixed_quad_triangles_and_reordered_topology,
-             test_self_intersection_and_bad_orientation, test_near_edge_ray_ambiguity,
+             test_self_intersection_and_bad_orientation, test_volume_rejects_crossing_beyond_shared_vertex,
+             test_near_edge_ray_ambiguity,
              test_primary_fit_and_bounded_sampling, test_thin_shell_cavity_never_becomes_interior,
              test_bounded_cached_probes_and_volume_validation,
              test_topology_reused_without_stale_pose_points, benchmark_nine_piece_probes):

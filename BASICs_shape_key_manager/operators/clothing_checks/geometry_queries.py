@@ -41,7 +41,10 @@ def volume_support(snapshot):
 def _volume_support(snapshot):
     if not snapshot['closed']:
         return False
-    if self_pairs(snapshot, contacts=True):
+    # Native same-tree overlap excludes shared edges and vertex-only contact,
+    # but includes a nonzero crossing segment beyond one shared vertex.
+    # Volume validity must not apply garment SELF's nonadjacent-only filter.
+    if snapshot['bvh'].overlap(snapshot['bvh']):
         return False
     volume = 0
     for triangle in snapshot['triangles']:

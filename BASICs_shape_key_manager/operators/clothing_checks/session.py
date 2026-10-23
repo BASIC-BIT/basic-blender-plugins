@@ -28,10 +28,10 @@ class ValidationSession:
         self.context, self.scene, self.motion = context, None, None
         self.closed, self.retained, self.current = False, False, None
         self.settings, self.queue, self.expected = prepare(settings)
-        rows, self.sources = preflight(body, rig, pairs)
+        mapping = resolve_mapping(rig, mapping)
+        rows, self.sources = preflight(body, rig, pairs, posed_bones=set(mapping.values()))
         if set(self.settings['utility_groups']) - {identity for _, _, identity in rows}:
             raise ValueError('utility groups name an uncaptured garment ID')
-        mapping = resolve_mapping(rig, mapping)
         self.source_ids = capture_source_ids(self.sources)
         self.fingerprints = fingerprint_inputs(self.sources, self.source_ids)
         self.scale = context.scene.unit_settings.scale_length
@@ -46,6 +46,7 @@ class ValidationSession:
                        'settings': deepcopy(self.settings), 'cases': [], 'poses': [], 'results': [],
                        'weights': {}, 'errors': [], 'exclusions': [], 'omissions': [
                            'Runtime physics and runtime parity are not evaluated',
+                           'Volume support is conditional on native BVH limits; coplanar overlap is not certified',
                            'Self containment is not evaluated; SELF scope is nonadjacent triangle crossings'],
                        'objects': {}, 'coverage': {}}
         try:

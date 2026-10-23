@@ -205,6 +205,19 @@ supported. A body without that
 supported deformation path stops before any copies are allocated. Clothing
 weight defects remain findings in the report rather than this body-input check.
 
+Validation also requires some body influence from the confirmed synthetic mapping
+or a descendant of a mapped bone. An independent unmapped root cannot establish
+that path. Real vertex-group assignments still suppress envelope fallback,
+including assignments to independent roots. Explicit baseline capture remains
+available before choosing a mapping; validation checks the mapping before it
+allocates its review copies.
+
+Containment volume screening uses native self-BVH overlaps without garment
+SELF's shared-vertex exclusion. It rejects proper crossings extending beyond a
+shared vertex, while SELF retains its nonadjacent-only scope. Volume support is
+conditional on native BVH limitations, including coplanar overlaps; it is not a
+complete self-intersection certification. Reports retain that omission.
+
 Captured baseline scenes retain immutable integrity evidence for their complete
 copied dependency closure. Editing frozen geometry, weights, keys, drivers,
 transforms, rig data, frame or unit scale requires an independent capture.

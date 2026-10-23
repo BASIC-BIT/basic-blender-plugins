@@ -202,9 +202,68 @@ def envelope_weight_semantics():
     print('ENVELOPE_WEIGHT_NATIVE_PARITY_OK cases=16 transformed_masked=16')
 
 
+def posed_body_influence():
+    motion=fixture.fixture.ik_fixture.motion
+    for profile in ('HEAD_HANDS','FULL_BODY'):
+        for angled in (False,True):
+            for group_name in ('Independent','IndependentEnvelope','MappedPelvis','Follower'):
+                body,rig,pairs,mapping,settings=fixture.setup('PosedBody')
+                bpy.context.view_layer.objects.active=rig;rig.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                for name,parent in (('Independent',None),('Follower','chest')):
+                    bone=rig.data.edit_bones.new(name);bone.head=(0,0,1.4);bone.tail=(0,0,1.5)
+                    bone.parent=rig.data.edit_bones[parent] if parent else None
+                if angled:
+                    for side,sign in (('left',1),('right',-1)):
+                        root=rig.data.edit_bones[side+'_upper_arm'].head.copy()
+                        rotation=Matrix.Rotation(.78539816339*sign,3,'Y')
+                        for part in ('upper_arm','forearm','hand'):
+                            bone=rig.data.edit_bones[side+'_'+part]
+                            bone.head=root+rotation@(bone.head-root);bone.tail=root+rotation@(bone.tail-root)
+                bpy.ops.object.mode_set(mode='OBJECT');rig.select_set(False)
+                rig.data.bones['hips'].name='MappedPelvis';mapping['hips']='MappedPelvis'
+                body.shape_key_clear();body.vertex_groups.clear()
+                body.vertex_groups.new(name='Independent' if group_name=='IndependentEnvelope' else group_name).add([0,1,2],1,'REPLACE')
+                # A real independent VG must suppress otherwise reachable mapped envelopes.
+                body.modifiers[0].use_bone_envelopes=True
+                if group_name=='IndependentEnvelope':
+                    body.modifiers[0].use_vertex_groups=False
+                    for bone in rig.data.bones:
+                        bone.use_deform=bone.name=='Independent';bone.envelope_distance=10
+                mask=body.vertex_groups.new(name='BodyMask');mask.add([0,1,2],.5,'REPLACE')
+                body.modifiers[0].vertex_group=mask.name
+                transform=Matrix.Translation((2,-3,1))@Matrix.Rotation(.4,4,'Z')@Matrix.Diagonal((1.4,.8,1.1,1))
+                sources=[rig,body,*[o for p in pairs for o in (p['reference'],p['candidate'])]]
+                for obj in sources:obj.matrix_world=transform
+                inputs=importlib.import_module(PACKAGE+'.operators.clothing_checks.inputs');inputs.evaluate_sources(sources)
+                case=next(c for c in motion.seed_cases([profile]) if c['motion']=='torso_bend' and c['t']==1)
+                def positions():
+                    bpy.context.view_layer.update()
+                    return [v.co.copy() for v in body.evaluated_get(bpy.context.evaluated_depsgraph_get()).data.vertices]
+                initial=positions()
+                with fixture.fixture.ik_fixture.native.IKMotionRig(rig,mapping,bpy.context.scene) as control:
+                    control.apply(case);moved=any((a-b).length>.001 for a,b in zip(initial,positions()))
+                assert moved==(not group_name.startswith('Independent')),(profile,angled,group_name,moved)
+                inputs.evaluate_sources(sources)
+                if group_name.startswith('Independent'):
+                    record=baseline.capture_baseline(bpy.context,body,rig,[pairs[0]['candidate']])
+                    assert bpy.data.scenes.get(record['scene']),'generic baseline capture requires no mapping'
+                before,allocations=session.fingerprint_inputs(sources),counts()
+                settings.update(cases=[case],profiles=[profile])
+                if not moved:
+                    fixture.fixture.reject(lambda:session.ValidationSession(bpy.context,body,rig,pairs,mapping,settings),'posed mapping')
+                else:
+                    worker=session.ValidationSession(bpy.context,body,rig,pairs,mapping,settings)
+                    assert any('coplanar' in omission for omission in worker.report['omissions'])
+                    worker.cancel()
+                assert session.fingerprint_inputs(sources)==before and counts()==allocations
+    print('POSED_BODY_INFLUENCE_OK rejected=8 moving=8 profiles=2 rests=2 transformed_masked=16')
+
+
 if __name__=='__main__':
     if '--reopen' in sys.argv:reopen()
     else:
-        cases={'baseline':baseline_integrity,'envelope':envelope_reach,'envelope_weights':envelope_weight_semantics}
+        cases={'baseline':baseline_integrity,'envelope':envelope_reach,'envelope_weights':envelope_weight_semantics,
+               'posed_body':posed_body_influence}
         for name in ([sys.argv[sys.argv.index('--case')+1]] if '--case' in sys.argv else cases):cases[name]()
         print('CLOTHING_BASELINE_BOUNDARIES_OK')

@@ -131,7 +131,8 @@ def analyze_pair(a, b, contact_m=0.0001, clearance_m=0.001, sample_limit=512,
 
     containment[id] describes samples of that object inside the other object.
     UNKNOWN means the other surface cannot support volume classification.
-    AMBIGUOUS means a valid volume had at least one uncertain parity/contact.
+    AMBIGUOUS means a natively screened volume had uncertain parity/contact.
+    Volume support remains conditional: native BVH does not certify coplanar overlaps.
     primary_id limits fit/regression ownership to that garment for body checks.
     None compares both garment owners. Raw measurements retain both directions.
     """
