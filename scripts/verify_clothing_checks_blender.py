@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import subprocess
+from types import SimpleNamespace
 import bpy
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +75,112 @@ def verify_retained_report_integrity(report):
         options.replay = False
     assert authoring.read_report(options) == report
     print('REPORT_INTEGRITY_REJECTIONS_OK')
+
+
+def verify_panel_report_integrity(report):
+    panel = importlib.import_module(PACKAGE + '.ui.clothing_checks_panel')
+    reporting = importlib.import_module(PACKAGE + '.operators.clothing_checks.reporting')
+    options = bpy.context.scene.clothing_checks
+    options.report_text = report['text']
+    class Layout:
+        def __init__(self): self.labels = []
+        def box(self): return self
+        def row(self): return self
+        def prop(self, *args, **kwargs): pass
+        def prop_search(self, *args, **kwargs): pass
+        def operator(self, *args, **kwargs): return SimpleNamespace()
+        def label(self, *, text, icon='NONE'): self.labels.append((text, icon))
+    text = bpy.data.texts[report['text']]
+    original = text.as_string()
+    view = panel.panel_report(original)
+    assert set(view) == {'status', 'summary', 'weight_findings', 'errors', 'results'}
+    assert all(not isinstance(value, (dict, list)) for value in view['summary'].values())
+    assert all(set(row['candidate']) == {'absolute_fit'} for row in view['results'])
+    try:
+        view['summary']['absolute_fit'] = 'EDITED'
+    except TypeError:
+        pass
+    else:
+        raise AssertionError('cached display data is mutable')
+    try:
+        for change in (None, 'valid_change', 'summary', 'empty_hash', 'missing_hash'):
+            value = json.loads(original)
+            if change in ('summary', 'valid_change'): value['summary']['absolute_fit'] = 'CLEAR'
+            if change == 'valid_change': value['report_hash'] = reporting.report_digest(value)
+            if change == 'empty_hash': value['report_hash'] = ''
+            if change == 'missing_hash': value.pop('report_hash')
+            text.clear()
+            text.write(json.dumps(value))
+            layout = Layout()
+            panel.BASIC_PT_clothing_pose_checks.draw(SimpleNamespace(layout=layout), bpy.context)
+            hits = panel.panel_report.cache_info().hits
+            panel.BASIC_PT_clothing_pose_checks.draw(SimpleNamespace(layout=Layout()), bpy.context)
+            assert panel.panel_report.cache_info().hits == hits + 1, 'unchanged redraw did not use cached display data'
+            fits = [label for label, _ in layout.labels if label.startswith('Absolute fit:')]
+            if change in (None, 'valid_change'):
+                assert fits == ['Absolute fit: ' + value['summary']['absolute_fit']], layout.labels
+            else:
+                assert not fits and any(icon == 'ERROR' for _, icon in layout.labels), (change, layout.labels)
+                authoring = importlib.import_module(PACKAGE + '.operators.clothing_checks.authoring')
+                reject(lambda: authoring.read_report(options), 'integrity')
+        options.report_text = ''
+        panel.BASIC_PT_clothing_pose_checks.draw(SimpleNamespace(layout=Layout()), bpy.context)
+        assert panel.panel_report.cache_info().currsize == 0
+        temporary = bpy.data.texts.new('Deleted panel report fixture')
+        temporary.write(original)
+        options.report_text = temporary.name
+        panel.BASIC_PT_clothing_pose_checks.draw(SimpleNamespace(layout=Layout()), bpy.context)
+        bpy.data.texts.remove(temporary)
+        panel.BASIC_PT_clothing_pose_checks.draw(SimpleNamespace(layout=Layout()), bpy.context)
+        assert panel.panel_report.cache_info().currsize == 0, 'deleted report retained in UI cache'
+    finally:
+        options.report_text = text.name
+        text.clear()
+        text.write(original)
+    print('PANEL_REPORT_INTEGRITY_OK')
+
+
+def verify_shared_source_data():
+    counts = lambda: tuple(len(getattr(bpy.data, name)) for name in
+                           ('objects', 'meshes', 'armatures', 'shape_keys', 'scenes', 'actions'))
+    for keys in (False, True):
+        rig = ik_fixture.fixture('SharedRig' + str(keys))
+        body, ref, candidate = [mesh(name + str(keys), rig) for name in ('SharedBody', 'SharedRef', 'SharedAfter')]
+        if not keys:
+            ref.shape_key_clear()
+        candidate.data = ref.data
+        if keys:
+            driver = body.data.shape_keys.key_blocks['Fit'].driver_add('value').driver
+            driver.type = 'AVERAGE'
+            target = driver.variables.new().targets[0]
+            target.id_type, target.id = 'KEY', ref.data.shape_keys
+            target.data_path = 'key_blocks["Fit"].value'
+        pairs = [dict(reference=ref, candidate=candidate, confirmed=True)]
+        sources = [body, rig, ref, candidate]
+        before, allocations = session.fingerprint_inputs(sources), counts()
+        reject(lambda: session.ValidationSession(bpy.context, body, rig, pairs, ik_fixture.confirmed(rig), {}), 'shared source')
+        reject(lambda: baseline.capture_baseline(bpy.context, body, rig, [ref, candidate]), 'shared source')
+        assert counts() == allocations and session.fingerprint_inputs(sources) == before
+        if keys:
+            assert target.id == ref.data.shape_keys
+        # Uncaptured linked users are harmless; capture's one-object self-pair stays supported.
+        record = baseline.capture_baseline(bpy.context, body, rig, [candidate])
+        assert record['pairs'] and session.fingerprint_inputs(sources) == before
+    rig = ik_fixture.fixture('SharedArmature')
+    body, ref, candidate = [mesh(name, rig) for name in ('ArmatureBody', 'ArmatureRef', 'ArmatureAfter')]
+    linked = rig.copy()
+    bpy.context.scene.collection.objects.link(linked)
+    ref.modifiers[0].object = linked
+    sources, pairs = [body, rig, ref, candidate, linked], [dict(reference=ref, candidate=candidate, confirmed=True)]
+    before, allocations = session.fingerprint_inputs(sources), counts()
+    reject(lambda: session.ValidationSession(bpy.context, body, rig, pairs, ik_fixture.confirmed(rig), {}), 'shared source')
+    assert counts() == allocations and session.fingerprint_inputs(sources) == before
+    ref.modifiers[0].object = rig
+    before = session.fingerprint_inputs(sources)
+    worker = session.ValidationSession(bpy.context, body, rig, pairs, ik_fixture.confirmed(rig), {})
+    worker.cancel()
+    assert session.fingerprint_inputs(sources) == before, 'uncaptured Armature linked user changed'
+    print('SHARED_SOURCE_DATA_REJECTION_OK')
 
 
 def run():
@@ -194,6 +301,7 @@ def run():
     assert report['summary']['absolute_crossing_faces'] > 0
     assert report['coverage']['continuous_coverage'] is False
     verify_retained_report_integrity(report)
+    verify_panel_report_integrity(report)
     assert report['review_scene'] in bpy.data.scenes
     assert json.loads(json.dumps(report)) == report
     assert session.fingerprint_inputs([body, rig, a, b]) == before
@@ -288,4 +396,5 @@ def run():
 
 
 if __name__ == '__main__':
+    verify_shared_source_data()
     run()

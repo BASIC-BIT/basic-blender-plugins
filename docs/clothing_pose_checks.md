@@ -14,6 +14,10 @@ constrained IK. It does not reproduce VRChat IK or simulate PhysBones.
 3. Check every Before/After row. For independently prepared meshes, choose **Add
    external pair**, select both objects, and explicitly confirm the pairing.
    Pair topology, including polygon ordering, must match.
+   Distinct captured objects must use independent Mesh, Armature and shape-key
+   data. Linked users outside the captured input closure do not prevent a check.
+   If captured objects share data, make their mesh/armature data single-user in
+   Blender before capture.
 4. Choose **Suggest mapping**, inspect every bone search field, and confirm the
    map. Suggestions alone do not authorize a run. Direct limb chains are required.
    Map `left_shoulder` and `right_shoulder` to the corresponding clavicles for
@@ -59,6 +63,10 @@ for refinement. An interval exactly at the threshold does not trigger that warni
 Retained reports carry a hash of their complete JSON payload. Preview, replay,
 removal and export reject an edited or unhashed report. Rerun validation after
 changing inputs instead of editing the retained report Text.
+The result panel checks that same hash before displaying any report findings.
+Unchanged redraws reuse one read-only display summary keyed by the exact Text
+contents. Preview, replay, removal and export still read and validate the full
+report each time.
 
 The report separates regression, absolute fit and coverage. New, existing,
 resolved and worsened regions use stable object pairs and source polygon IDs.

@@ -121,6 +121,10 @@ def validate_report(report):
     return report
 
 
+def parse_report(payload):
+    return validate_report(json.loads(payload))
+
+
 def persist(report, scene):
     if scene:
         report['review_scene'] = scene.name
@@ -132,8 +136,7 @@ def persist(report, scene):
         report['text'] = text.name
         report['report_hash'] = report_digest(report)
         text.write(json.dumps(report, sort_keys=True, indent=2, allow_nan=False))
-        saved = json.loads(text.as_string())
-        validate_report(saved)
+        parse_report(text.as_string())
         if scene:
             scene['basic_clothing_report'] = text.name
         return text

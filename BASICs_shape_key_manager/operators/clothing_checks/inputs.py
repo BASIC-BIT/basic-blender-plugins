@@ -71,6 +71,17 @@ def preflight(body, rig, pairs):
                 rig_targets.add(target)
                 if target not in objects:
                     objects.append(target)
+    data_owners = {}
+    for obj in objects:
+        dependencies = [obj.data]
+        if obj.type == 'MESH' and obj.data.shape_keys:
+            dependencies.append(obj.data.shape_keys)
+        for block in dependencies:
+            if block in data_owners and data_owners[block] != obj:
+                raise ValueError('shared source ' + block.bl_rna.identifier + ' data between ' +
+                                 data_owners[block].name + ' and ' + obj.name + ' is unsupported; make the captured '
+                                 'mesh/armature data single-user before capture')
+            data_owners[block] = obj
     blocks = data_blocks(objects)
     for obj in objects:
         if obj.mode != 'OBJECT':

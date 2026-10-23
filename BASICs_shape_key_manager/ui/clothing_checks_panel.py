@@ -1,6 +1,26 @@
 """BASIC Developer layout for explicit clothing checks and native evidence."""
-import json
 import bpy
+from functools import lru_cache
+from types import MappingProxyType
+from ..operators.clothing_checks.reporting import parse_report
+
+
+@lru_cache(maxsize=1)
+def panel_report(payload):
+    """Cache one validated display projection by exact Text contents, never commands."""
+    try:
+        report = parse_report(payload)
+        return MappingProxyType({'status': report['status'],
+            'summary': MappingProxyType({key: value for key, value in report['summary'].items()
+                                        if isinstance(value, (str, int, float, bool))}),
+            'weight_findings': sum(not audit['valid'] for audit in report.get('weights', {}).values()),
+            'errors': tuple(report.get('errors', [])),
+            'results': tuple(MappingProxyType({'case_id': row['case_id'], 'pair': tuple(row['pair']),
+                            'regression': row['regression'],
+                            'candidate': MappingProxyType({'absolute_fit': row['candidate']['absolute_fit']})})
+                             for row in report['results'])})
+    except (ValueError, KeyError) as exc:
+        return str(exc)
 
 
 def _action(layout, text, action, index=-1, icon='NONE'):
@@ -12,12 +32,15 @@ def _results(layout, settings):
     layout.prop_search(settings, 'report_text', bpy.data, 'texts')
     text = bpy.data.texts.get(settings.report_text)
     if text is None:
+        panel_report.cache_clear()
         return
     try:
-        report = json.loads(text.as_string())
+        report = panel_report(text.as_string())
+        if isinstance(report, str):
+            raise ValueError(report)
         summary = report['summary']
-    except (ValueError, KeyError):
-        layout.label(text='Choose a clothing report Text', icon='ERROR')
+    except (ValueError, KeyError) as exc:
+        layout.label(text='Invalid clothing report: ' + str(exc), icon='ERROR')
         return
     layout.label(text='Run: ' + report['status'])
     layout.label(text='Coverage: ' + summary['coverage'])
@@ -31,7 +54,7 @@ def _results(layout, settings):
         layout.label(text=f"{summary['absolute_crossing_faces']} crossing, {summary['absolute_contained_faces']} contained face observations")
     layout.label(text=f"{summary['new_faces']} new, {summary['existing_faces']} existing, {summary['worsened_faces']} worsened faces")
     layout.label(text=f"{summary['invalid']} invalid or self-crossing poses, {summary['unknown']} unknown pair results")
-    layout.label(text=f"{sum(not audit['valid'] for audit in report.get('weights', {}).values())} garments have weight audit findings")
+    layout.label(text=f"{report['weight_findings']} garments have weight audit findings")
     for error in report.get('errors', []):
         layout.label(text=error, icon='ERROR')
     layout.prop(settings, 'result_index')

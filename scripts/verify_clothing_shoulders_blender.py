@@ -17,6 +17,7 @@ assert bpy.app.background
 
 
 def run():
+    verify_root_upper_arm()
     scene = bpy.context.scene
     rig = fixture.fixture('ShoulderFixture', roll=37, short_tails=True)
     bpy.context.view_layer.objects.active = rig
@@ -140,6 +141,39 @@ def run():
     verify_independent_controls(rig, mapping, angled, scene)
     verify_pose_induced_crossing(rig, mapping, scene)
     print('CLOTHING_SHOULDERS_OK', len(cases))
+
+
+def verify_root_upper_arm():
+    scene = bpy.context.scene
+    rig = fixture.fixture('RootUpperArm', roll=29, short_tails=True)
+    bpy.context.view_layer.objects.active = rig
+    rig.select_set(True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    for side in ('left', 'right'):
+        rig.data.edit_bones[side + '_upper_arm'].parent = None
+    bpy.ops.object.mode_set(mode='OBJECT')
+    rig.select_set(False)
+    mapping = fixture.confirmed(rig)
+    assert fixture.native.resolve_mapping(rig, mapping) == mapping
+    rig.matrix_world = Matrix.Translation((.2, -.3, .1)) @ Matrix.Rotation(.31, 4, 'Z')
+    probe, bones = fixture.skinned_probe(rig)
+    source = {p.name: p.matrix_basis.copy() for p in rig.pose.bones}
+    neutral = fixture.motion.seed_cases(['FULL_BODY'])[0]
+    with fixture.native.IKMotionRig(rig, mapping, scene) as worker:
+        for angle in (30, 120, 150):
+            case = dict(neutral, t=1, controls={'left_upper_arm': {'elevation': angle}, 'left_forearm': {'bend': 25}})
+            result = worker.apply(case)
+            assert result['valid'], result['violations']
+            fixture.assert_evaluated_pose(rig, probe, bones, result, scene, worker.control_rig)
+            a, b = [Matrix(result['matrices'][name]).translation for name in ('left_upper_arm', 'left_forearm')]
+            measured = degrees(acos(max(-1, min(1, -(b - a).normalized().z))))
+            assert abs(measured - angle) < .1, (measured, angle)
+            worker.apply(neutral)
+            fixture.native.apply_pose_matrices(rig, result['matrices'])
+            scene.view_layers[0].update()
+            fixture.assert_evaluated_pose(rig, probe, bones, result, scene, worker.control_rig)
+    assert all(p.matrix_basis == source[p.name] for p in rig.pose.bones)
+    print('ROOT_UPPER_ARM_ELEVATION_REPLAY_OK')
 
 
 def verify_independent_controls(rig, mapping, angled, scene):

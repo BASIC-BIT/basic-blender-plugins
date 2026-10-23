@@ -4,7 +4,7 @@ import bpy
 from .baseline import capture_baseline
 from .inputs import logical_id
 from .identities import resolve_bindings
-from .reporting import validate_report
+from .reporting import parse_report
 from .rig import CANONICAL_BONES, OPTIONAL_BONES, suggest_mapping
 from ...core.clothing_motion import LIBRARY_VERSION
 
@@ -13,7 +13,7 @@ def read_report(settings):
     text = bpy.data.texts.get(settings.report_text)
     if text is None:
         raise ValueError('choose an existing report Text datablock')
-    return validate_report(json.loads(text.as_string()))
+    return parse_report(text.as_string())
 
 
 def inputs_from_ui(context):

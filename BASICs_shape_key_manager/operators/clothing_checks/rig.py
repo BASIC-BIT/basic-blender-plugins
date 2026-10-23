@@ -170,8 +170,9 @@ class IKMotionRig:
                         if r['bone'] == canonical and r['axis'] == 'bone')
             orientation = orientation @ Quaternion((0, 1, 0), radians(twist))
             desired = Matrix.LocRotScale(pose.head, orientation, pose.matrix.to_scale())
-            bases[name] = bone.convert_local_to_pose(desired, bone.matrix_local, invert=True,
-                parent_matrix=pose.parent.matrix, parent_matrix_local=bone.parent.matrix_local)
+            parent = ({'parent_matrix': pose.parent.matrix,
+                       'parent_matrix_local': bone.parent.matrix_local} if pose.parent else {})
+            bases[name] = bone.convert_local_to_pose(desired, bone.matrix_local, invert=True, **parent)
         for name, basis in bases.items():
             self.control_rig.pose.bones[name].matrix_basis = basis
 
