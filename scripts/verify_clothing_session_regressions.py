@@ -96,6 +96,127 @@ def _geometry(context, scene, obj):
             evaluated.to_mesh_clear()
 
 
+def pinned_shape_geometry():
+    body, rig, pairs, mapping, settings = setup('PinnedGeometry')
+    candidate = pairs[0]['candidate']
+    key = candidate.data.shape_keys.key_blocks['Fit']
+    for point in key.data:
+        point.co.z += 1
+    key.value = .25
+    candidate.active_shape_key_index = 1
+    unpinned = _geometry(bpy.context, bpy.context.scene, candidate)
+    candidate.show_only_shape_key = True
+    pinned = _geometry(bpy.context, bpy.context.scene, candidate)
+    effective = session.effective_shapes(bpy.context, bpy.context.scene, [candidate])
+    assert abs(unpinned[0][2] - 1.25) < 1e-6
+    assert abs(pinned[0][2] - 2.) < 1e-6
+    assert abs(effective[candidate.name]['Fit'] - .25) < 1e-6
+    print('NATIVE_PIN_OVERRIDE z=1.25 pinned_z=2.0 numeric_Fit=0.25')
+    sources = [body, rig, pairs[0]['reference'], candidate]
+    for obj in (body, pairs[0]['reference'], candidate):
+        candidate.show_only_shape_key = False
+        obj.show_only_shape_key = True
+        for active in (0, 1):
+            obj.active_shape_key_index = active
+            original = session.fingerprint_inputs(sources)
+            scenes = set(bpy.data.scenes)
+            identity = session.logical_id(candidate)
+            requested = dict(settings['cases'][0], shape_values={identity: {'Fit': .8}})
+            for case in (settings['cases'][0], requested):
+                fixture.reject(lambda: session.ValidationSession(bpy.context, body, rig, pairs, mapping,
+                               dict(settings, cases=[case])), 'unpin')
+            fixture.reject(lambda: baseline.capture_baseline(bpy.context, body, rig,
+                           [pairs[0]['reference'], candidate]), 'unpin')
+            assert set(bpy.data.scenes) == scenes, 'pinned rejection leaked generated scenes'
+            assert session.fingerprint_inputs(sources) == original, 'pinned rejection changed source state'
+        obj.show_only_shape_key = False
+
+
+def shape_display_fingerprints():
+    body, rig, pairs, mapping, settings = setup('PinFingerprint')
+    candidate = pairs[0]['candidate']
+    before = session.fingerprint_inputs([candidate])
+    candidate.show_only_shape_key = True
+    pinned = session.fingerprint_inputs([candidate])
+    assert pinned != before, 'pinning shape geometry did not change fingerprint'
+    candidate.active_shape_key_index = 1
+    assert session.fingerprint_inputs([candidate]) != pinned, 'changing pinned key did not change fingerprint'
+    candidate.show_only_shape_key = False
+    worker = session.ValidationSession(bpy.context, body, rig, pairs, mapping, settings)
+    try:
+        assert not worker.step(), worker.report['errors']
+        candidate.show_only_shape_key = True
+        while not worker.step():
+            pass
+        assert worker.report['status'] == 'STALE', worker.report
+        assert worker.scene is None, 'stale pin change retained generated data'
+    finally:
+        worker.cancel()
+        candidate.show_only_shape_key = False
+    report = session.run_validation(bpy.context, body, rig, pairs, mapping, settings)
+    assert report['status'] == 'COMPLETED', report['errors']
+    candidate.show_only_shape_key = True
+    fixture.reject(lambda: preview.preview_failure(bpy.context, report), 'stale preview')
+
+
+def unpinned_current_and_requested_geometry():
+    body, rig, pairs, mapping, settings = setup('UnpinnedBlend')
+    candidate = pairs[0]['candidate']
+    for point in candidate.data.shape_keys.key_blocks['Fit'].data:
+        point.co.z += 1
+    candidate.data.shape_keys.key_blocks['Fit'].value = .25
+    neutral = fixture.ik_fixture.motion.seed_cases(['HEAD_HANDS'], budget=1)[0]
+    identity = session.logical_id(candidate)
+    cases = [neutral, dict(neutral, shape_case='Endpoint', shape_values={identity: {'Fit': .75}})]
+    before = session.fingerprint_inputs([body, rig, pairs[0]['reference'], candidate])
+    points = []
+    for case, value in zip(cases, (.25, .75)):
+        worker = session.ValidationSession(bpy.context, body, rig, pairs, mapping,
+                                           dict(settings, cases=[case]))
+        try:
+            assert not worker.step(), worker.report['errors']
+            copied = worker.copies[candidate]
+            actual = worker.report['poses'][0]['effective_shape_values'][copied.name]['Fit']
+            assert abs(actual - value) < 1e-6, (actual, value)
+            points.append(_geometry(bpy.context, worker.scene, copied)[0])
+        finally:
+            worker.cancel()
+    distance = sum((a - b) ** 2 for a, b in zip(*points)) ** .5
+    assert abs(distance - .5) < 1e-5, ('numeric blend did not reach native geometry', distance)
+    assert session.fingerprint_inputs([body, rig, pairs[0]['reference'], candidate]) == before
+
+
+def pose_evidence_stored_once():
+    body, rig, pairs, mapping, settings = setup('CompactPose')
+    for index in range(1, 9):
+        pairs.append(dict(reference=fixture.mesh('CompactBefore' + str(index), rig, .03),
+                          candidate=fixture.mesh('CompactAfter' + str(index), rig, .03), confirmed=True))
+    worker = session.ValidationSession(bpy.context, body, rig, pairs, mapping, settings)
+    try:
+        assert not worker.step(), worker.report['errors']
+        # Seed high-volume pose evidence to isolate serialization growth from geometry cost.
+        local = {'status': 'LOCAL_CONTACTS', 'body_face_pairs': [[0, i] for i in range(32)],
+                 'global_contact_pair_count': 32, 'containment': 'UNCHANGED'}
+        worker.report['poses'][0]['regional_body_plausibility'] = {'body': local}
+        while worker.current is not None:
+            assert not worker.step(), worker.report['errors']
+        assert len(worker.report['results']) == 54
+        small_report = len(json.dumps(worker.report))
+        small_pose = len(json.dumps(worker.report['poses'][0]))
+        complete = [[0, i] for i in range(2032)]
+        local.update(body_face_pairs=complete, global_contact_pair_count=2032)
+        large_report = len(json.dumps(worker.report))
+        large_pose = len(json.dumps(worker.report['poses'][0]))
+        assert large_report - small_report == large_pose - small_pose, (
+            'pose evidence repeated per pair job', large_report - small_report, large_pose - small_pose)
+        saved = json.loads(json.dumps(worker.report))
+        assert saved['poses'][0]['regional_body_plausibility']['body']['body_face_pairs'] == complete
+        assert all(r['pose_index'] == 0 and 'regional_body_plausibility' not in r for r in saved['results'])
+        print('POSE_EVIDENCE_GROWTH', large_report - small_report, 'bytes for 2000 pairs across 54 jobs')
+    finally:
+        worker.cancel()
+
+
 def full_fingerprint_staleness():
     body, rig, pairs, mapping, settings = setup('Fingerprint')
     candidate = pairs[0]['candidate']
@@ -275,7 +396,9 @@ def external_reopen(non_neutral):
 def main():
     failed = []
     non_neutral = None
-    for test in (triangulation, driven_shapes, full_fingerprint_staleness, reference_shape_authoring,
+    for test in (triangulation, driven_shapes, pinned_shape_geometry, shape_display_fingerprints,
+                 unpinned_current_and_requested_geometry, pose_evidence_stored_once,
+                 full_fingerprint_staleness, reference_shape_authoring,
                  pose_dependent_current, nonneutral_preview):
         try:
             result = test()

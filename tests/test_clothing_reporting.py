@@ -1,5 +1,6 @@
 """Absolute findings remain visible when coverage cannot certify a clean fit."""
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -10,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[1] / 'BASICs_shape_key_manager'
 spec = importlib.util.spec_from_file_location('checks', ROOT / 'core/clothing_checks.py')
 checks = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checks)
+spec = importlib.util.spec_from_file_location('policy', ROOT / 'core/clothing_policy.py')
+policy = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(policy)
 spec = importlib.util.spec_from_file_location(
     'fixture.operators.clothing_checks.reporting',
     ROOT / 'operators/clothing_checks/reporting.py')
@@ -28,6 +32,45 @@ def result(clipping):
 
 
 class ClothingReportingTests(unittest.TestCase):
+    def test_compact_findings_preserve_complete_faces_and_reconstruct_actionable_results(self):
+        identity = 'shirt-' + 'a' * 64
+        faces = list(range(2000))
+        analysis = {'pair': ['body', identity], 'primary_id': identity,
+                    'crossing_faces': {identity: faces}, 'contained_faces': {},
+                    'containment': {identity: 'UNKNOWN'}, 'absolute_fit': 'CLIPPING',
+                    'polygon_pairs': [[0, face] for face in faces]}
+        analysis = policy.apply_policy(analysis, {}, [])
+        finding = checks.classify_pair(analysis, analysis)
+        actionable = checks.classify_pair(policy.actionable_analysis(analysis), policy.actionable_analysis(analysis))
+        finding['actionable'] = {key: value for key, value in actionable.items()
+                                 if key not in {'reference', 'candidate'}}
+        compact = reporting.compact_finding(finding)
+        self.assertFalse('candidate_absolute' in compact, 'derived absolute faces were duplicated')
+        self.assertEqual(compact['existing'], {identity: faces})
+        self.assertEqual(compact['candidate']['crossing_faces'][identity], faces)
+        self.assertEqual(compact['candidate']['policy']['actionable_crossing_faces'][identity], faces)
+        reconstructed = checks.classify_pair(policy.actionable_analysis(compact['reference']),
+                                             policy.actionable_analysis(compact['candidate']))
+        self.assertEqual(compact['actionable']['absolute_fit'], reconstructed['absolute_fit'])
+        self.assertEqual(compact['actionable']['regression'], reconstructed['regression'])
+        self.assertEqual(compact['actionable']['existing_count'], len(reconstructed['existing']))
+        self.assertEqual(compact['actionable']['evidence_hash'], policy.evidence_hash(finding['actionable']))
+        rebuilt = {key: value for key, value in reconstructed.items() if key not in {'reference', 'candidate'}}
+        self.assertEqual(compact['actionable']['evidence_hash'], policy.evidence_hash(rebuilt))
+        self.assertFalse('candidate_absolute' in compact['actionable'], 'derived actionable faces were duplicated')
+        self.assertLess(len(json.dumps(compact)), len(json.dumps(finding)) / 5)
+        self.assertEqual(finding['existing'][1999], {'object_id': identity, 'face': 1999})
+
+    def test_summary_counts_grouped_and_legacy_regression_faces(self):
+        grouped, legacy = result(True), result(True)
+        grouped.update(new={'shirt': [1, 2]}, existing={'body': [3], 'shirt': [4, 5]})
+        legacy.update(new=[{'object_id': 'shirt', 'face': 6}])
+        report = {'results': [grouped, legacy], 'poses': [{'valid': True}],
+                  'cases': [1], 'coverage': {}, 'status': 'COMPLETED'}
+        reporting.summarize(report)
+        self.assertEqual(report['summary']['new_faces'], 3)
+        self.assertEqual(report['summary']['existing_faces'], 3)
+
     def test_compaction_retains_faces_counts_and_hashes_complete_evidence(self):
         analysis = {'triangle_pairs': [[i, 0] for i in range(60)],
                     'polygon_pairs': [[i, 0] for i in range(60)],
@@ -55,6 +98,29 @@ class ClothingReportingTests(unittest.TestCase):
         reporting.summarize(report)
         self.assertEqual(report['summary']['absolute_fit'], 'INDETERMINATE')
         self.assertEqual(report['summary']['absolute_faces'], [])
+
+    def test_allowed_crossings_preserve_unknown_actionable_containment(self):
+        finding = result(True)
+        finding['candidate']['policy'] = {'allowed_count': 1, 'actionable_count': 0}
+        finding['actionable'] = {'absolute_fit': 'INDETERMINATE'}
+        report = {'results': [finding], 'poses': [{'valid': True}],
+                  'cases': [1], 'coverage': {}, 'status': 'COMPLETED'}
+        reporting.summarize(report)
+        self.assertEqual(report['summary']['absolute_fit'], 'CLIPPING')
+        self.assertEqual(report['summary']['unknown'], 0)
+        self.assertEqual(report['summary']['actionable_fit'], 'INDETERMINATE')
+        self.assertEqual(report['summary']['actionable_unknown'], 1)
+
+    def test_actionable_clipping_survives_other_actionable_uncertainty(self):
+        findings = [result(True), result(True)]
+        for finding, status in zip(findings, ('INDETERMINATE', 'CLIPPING')):
+            finding['candidate']['policy'] = {'allowed_count': 0, 'actionable_count': 1}
+            finding['actionable'] = {'absolute_fit': status}
+        report = {'results': findings, 'poses': [{'valid': True}],
+                  'cases': [1], 'coverage': {}, 'status': 'COMPLETED'}
+        reporting.summarize(report)
+        self.assertEqual(report['summary']['actionable_fit'], 'CLIPPING')
+        self.assertEqual(report['summary']['actionable_unknown'], 1)
 
 
 if __name__ == '__main__':

@@ -207,7 +207,7 @@ def session_policy():
     assert result['candidate']['policy']['allowed_count'] == 1
     assert result['candidate']['policy']['actionable_count'] == 0
     assert result['candidate']['crossing_faces'][identity] == [0, 1]
-    local = result['regional_body_plausibility']
+    local = report['poses'][result['pose_index']]['regional_body_plausibility']
     assert local['shoulder']['status'] == 'NO_LOCAL_CROSSINGS'
     assert local['shoulder']['global_crossing_count'] == 1
     assert local['thigh']['status'] == 'LOCAL_CROSSINGS'

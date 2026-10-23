@@ -85,6 +85,9 @@ def preflight(body, rig, pairs):
                 raise ValueError('only Armature modifiers targeting the selected rig are supported')
         if obj.type == 'MESH' and obj.data.shape_keys and not obj.data.shape_keys.use_relative:
             raise ValueError('absolute shape key evaluation is unsupported')
+        if obj.type == 'MESH' and obj.data.shape_keys and obj.show_only_shape_key:
+            raise ValueError('unpin the shape key on ' + obj.name +
+                             ' before capture or validation; CURRENT uses the evaluated numeric blend')
         if obj.type == 'ARMATURE' and any(b.bbone_segments > 1 for b in obj.data.bones):
             raise ValueError('segmented B-Bone deformation is unsupported')
     for block in blocks:

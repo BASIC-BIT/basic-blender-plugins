@@ -38,6 +38,13 @@ constrained IK. It does not reproduce VRChat IK or simulate PhysBones.
    timer event. Cancel or Escape removes unfinished generated data. Source edits
    are detected between poses and stop the run as stale.
 
+Unpin shape keys on the body and every reference/candidate mesh before baseline
+capture or validation. Pinned keys override Blender geometry independently of
+numeric key values, so capture and validation reject them without changing source
+state. `CURRENT` uses the captured numeric blend, including supported drivers
+evaluated for each pose. It does not test pinned-key display geometry. Changing
+the pin or active shape key invalidates a running job or saved preview.
+
 The default total budget is 512 evaluated pose/shape cases. Sampling reserves
 coverage across selected profiles, shape states, motion families and heldout
 cases. Additional shape variants consume that same budget. Reports identify
@@ -60,6 +67,16 @@ when unrelated pairs or unsampled intervals are unknown. Counts distinguish
 repeated face observations from unique pair/object/source-face regions. Preview
 selects absolute findings, including existing clipping. A clean regression result
 does not establish a clean fit.
+
+Saved reports keep complete raw crossing/contained face lists and actionable
+policy face maps. Regression categories `new`, `existing`, `resolved` and
+`unclassified` group source face IDs by object ID. The report declares
+`regression_face_encoding: OBJECT_ID_TO_SOURCE_FACE_LIST`; core classification
+APIs still return per-face records. Actionable summaries retain statuses, category
+counts and a hash of complete classification evidence. Their full classification
+can be reconstructed from the reference/candidate analyses and policy face maps.
+Derived absolute face records are omitted from each pair result. Regional body
+evidence is stored once per pose, reached through each result's `pose_index`.
 
 The shoulder family includes down-to-raised lateral sweeps with straight and
 bent elbows, inward/outward upper-arm twist, torso lean/turn, shrug and shoulder

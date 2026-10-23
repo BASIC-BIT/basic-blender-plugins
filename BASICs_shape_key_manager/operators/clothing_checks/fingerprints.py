@@ -145,6 +145,7 @@ def _fingerprint(obj):
             _feed(digest, label, payload)
         values.update(groups=[[g.name, g.lock_weight] for g in obj.vertex_groups], data_animation=_animation(mesh))
         if mesh.shape_keys:
+            values['shape_display'] = [obj.show_only_shape_key, obj.active_shape_key_index]
             animation = mesh.shape_keys.animation_data
             driven = {curve.data_path for curve in animation.drivers if not curve.mute} if animation else set()
             # Active driver outputs are derived state; their authored inputs are hashed above/below.

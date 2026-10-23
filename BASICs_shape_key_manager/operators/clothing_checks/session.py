@@ -35,6 +35,7 @@ class ValidationSession:
         self.owner = uuid.uuid4().hex
         self.report = {'id': self.owner, 'status': 'RUNNING', 'blender': bpy.app.version_string,
                        'fingerprint_format': 'BASIC-CLOTHING-BINARY-1',
+                       'regression_face_encoding': 'OBJECT_ID_TO_SOURCE_FACE_LIST',
                        'approximation': 'Synthetic constrained IK; not VRChat emulation or continuous collision proof',
                        'inputs': self.fingerprints, 'mapping': mapping, 'unit_scale': self.scale,
                        'settings': deepcopy(self.settings), 'cases': [], 'poses': [], 'results': [],
@@ -213,8 +214,7 @@ class ValidationSession:
         result = compact_finding(finding)
         result.update(case_id=current['case']['id'], pose_index=current['pose'], kind=kind,
                       pose_valid=self.report['poses'][current['pose']]['valid'],
-                      plausibility=self.report['poses'][current['pose']]['plausibility'],
-                      regional_body_plausibility=self.report['poses'][current['pose']]['regional_body_plausibility'])
+                      plausibility=self.report['poses'][current['pose']]['plausibility'])
         self.report['results'].append(result)
         current['collision'] |= candidate['absolute_fit'] == 'CLIPPING'
         gap = candidate['clearance_m']

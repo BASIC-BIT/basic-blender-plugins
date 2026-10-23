@@ -26,9 +26,28 @@ def compact_analysis(analysis):
 
 def compact_finding(finding):
     result = dict(finding)
+    result.pop('candidate_absolute', None)
+    for key in ('new', 'existing', 'resolved', 'unclassified'):
+        grouped = {}
+        for row in result.get(key, []):
+            grouped.setdefault(row['object_id'], []).append(row['face'])
+        result[key] = grouped
+    if 'actionable' in result:
+        full = result['actionable']
+        face_keys = ('new', 'existing', 'resolved', 'unclassified', 'worsened')
+        result['actionable'] = {key: value for key, value in full.items()
+                                if key not in (*face_keys, 'candidate_absolute')}
+        result['actionable'].update({key + '_count': face_count(full.get(key, [])) for key in face_keys})
+        result['actionable']['evidence_hash'] = hashlib.sha256(json.dumps(full, sort_keys=True,
+            separators=(',', ':'), allow_nan=False).encode()).hexdigest()
     for key in ('reference', 'candidate'):
         result[key] = compact_analysis(result[key])
     return result
+
+
+def face_count(rows):
+    """Count grouped source faces and legacy per-face report records."""
+    return sum(len(faces) for faces in rows.values()) if isinstance(rows, dict) else len(rows)
 
 
 def weight_report(reference, candidate, rig):
@@ -56,10 +75,13 @@ def summarize(report):
     summary.update(absolute)
     policies = [r['candidate']['policy'] for r in results if 'policy' in r['candidate']]
     if policies:
+        actionable_unknown = sum(r.get('actionable', {}).get('absolute_fit') == 'INDETERMINATE'
+                                 for r in results)
+        summary['actionable_unknown'] = actionable_unknown
         summary['allowed_findings'] = sum(p['allowed_count'] for p in policies)
         summary['actionable_findings'] = sum(p['actionable_count'] for p in policies)
         summary['actionable_fit'] = ('CLIPPING' if any(r.get('actionable', {}).get('absolute_fit') == 'CLIPPING'
-                                    for r in results) else 'INDETERMINATE' if unknown or pending or invalid
+                                    for r in results) else 'INDETERMINATE' if actionable_unknown or unknown or pending or invalid
                                     else 'NO_ACTIONABLE_CLIPPING')
     summary.update(regression=('REGRESSION' if any(r['regression'] == 'REGRESSION' for r in results)
                                else 'INDETERMINATE' if any(r['regression'] == 'INDETERMINATE' for r in results)
@@ -67,9 +89,9 @@ def summarize(report):
                    absolute_fit=('CLIPPING' if absolute['candidate_clipping_pairs']
                                  else 'INDETERMINATE' if unknown or pending or invalid or not results
                                  else 'CLEAR'),
-                   new_faces=sum(len(r['new']) for r in results),
-                   existing_faces=sum(len(r['existing']) for r in results),
-                   worsened_faces=sum(len(r['worsened']) for r in results))
+                   new_faces=sum(face_count(r['new']) for r in results),
+                   existing_faces=sum(face_count(r['existing']) for r in results),
+                   worsened_faces=sum(face_count(r['worsened']) for r in results))
     report['summary'] = summary
 
 
