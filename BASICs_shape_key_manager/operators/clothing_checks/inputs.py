@@ -36,7 +36,8 @@ def preflight(body, rig, pairs):
         captured = ref.get('_basic_clothing_id') and ref.get('_basic_clothing_id') == candidate.get('_basic_clothing_id')
         if not captured and pair.get('confirmed') is not True:
             raise ValueError('confirm external object pairing explicitly')
-        if candidate in candidates or ref in references or body in (ref, candidate):
+        used = candidates | references
+        if candidate in used or ref in used or body in (ref, candidate):
             raise ValueError('duplicate pair or body used as clothing')
         candidates.add(candidate)
         references.add(ref)

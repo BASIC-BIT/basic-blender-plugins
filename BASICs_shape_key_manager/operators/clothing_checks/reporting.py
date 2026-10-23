@@ -50,16 +50,25 @@ def face_count(rows):
     return sum(len(faces) for faces in rows.values()) if isinstance(rows, dict) else len(rows)
 
 
-def weight_report(reference, candidate, rig):
+def weight_report(reference, candidate, rig, utility_groups=()):
     deform = {b.name for b in rig.data.bones if b.use_deform}
     nondeform = {b.name for b in rig.data.bones if not b.use_deform}
+    if (not isinstance(utility_groups, (list, tuple)) or
+            any(not isinstance(name, str) or not name for name in utility_groups)):
+        raise ValueError('utility groups require a list of exact group names')
+    utility = set(utility_groups)
+    available = {g.name for obj in (reference, candidate) for g in obj.vertex_groups}
+    if utility & (deform | nondeform) or utility - available:
+        raise ValueError('utility groups must name existing non-bone groups')
     def rows(obj):
         names = {g.index: g.name for g in obj.vertex_groups}
         return [{names[g.group]: g.weight for g in v.groups
-                 if names[g.group] not in nondeform} for v in obj.data.vertices]
-    return audit_weights(rows(candidate), deform,
+                 if names[g.group] not in nondeform | utility} for v in obj.data.vertices]
+    report = audit_weights(rows(candidate), deform,
                          {g.name for g in candidate.vertex_groups if g.lock_weight and g.name in deform},
                          rows(reference), cap=4)
+    report['excluded_utility_groups'] = sorted(utility)
+    return report
 
 
 def summarize(report):

@@ -40,12 +40,14 @@ def inputs_from_ui(context):
                     accessory_bones=json.loads(options.accessory_bones),
                     region_definitions=json.loads(options.region_definitions),
                     contact_allowances=json.loads(options.contact_allowances),
+                    utility_groups=json.loads(options.utility_groups),
                     shape_cases=[{'id': 'current', 'values': {}}] +
                                 [{'id': name, 'values': values} for name, values in shapes.items()])
     settings['motion_library_version'] = LIBRARY_VERSION
     if options.replay:
         previous = read_report(options)
         original = previous['settings']
+        settings['utility_groups'] = original.get('utility_groups', {})
         if original.get('motion_library_version') != LIBRARY_VERSION:
             raise ValueError('motion library changed; start a new run instead of replaying legacy cases')
         for key in ('profiles', 'families', 'shape_cases', 'steps', 'refinement_depth', 'budget',

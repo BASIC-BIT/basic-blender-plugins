@@ -3,7 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +20,10 @@ spec = importlib.util.spec_from_file_location(
 reporting = importlib.util.module_from_spec(spec)
 with patch.dict(sys.modules, {'bpy': ModuleType('bpy'), 'fixture.core.clothing_checks': checks}):
     spec.loader.exec_module(reporting)
+spec = importlib.util.spec_from_file_location('fingerprints', ROOT / 'operators/clothing_checks/fingerprints.py')
+fingerprints = importlib.util.module_from_spec(spec)
+with patch.dict(sys.modules, {'bpy': ModuleType('bpy')}):
+    spec.loader.exec_module(fingerprints)
 
 
 def result(clipping):
@@ -32,6 +36,40 @@ def result(clipping):
 
 
 class ClothingReportingTests(unittest.TestCase):
+    def test_legacy_action_keyframe_edits_change_the_public_source_fingerprint(self):
+        class Block(SimpleNamespace):
+            def items(self):
+                return {}.items()
+        key = SimpleNamespace(co=[1., 0.], handle_left=[.5, 0.], handle_right=[1.5, 0.],
+                              interpolation='BEZIER')
+        curve = SimpleNamespace(data_path='location', array_index=0, extrapolation='CONSTANT',
+                                keyframe_points=[key], modifiers=[], bl_rna=SimpleNamespace(properties=[]))
+        # Blender 4.3 actions expose fcurves without layered-action attributes.
+        action = SimpleNamespace(name='Legacy', fcurves=[curve])
+        matrix = [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.], [0., 0., 0., 1.]]
+        obj = Block(type='EMPTY', name_full='LegacySource', data=Block(), parent=None,
+                    parent_type='OBJECT', parent_bone='', matrix_world=matrix, matrix_parent_inverse=matrix,
+                    modifiers=[], constraints=[], animation_data=SimpleNamespace(action=action, drivers=[]))
+        with patch.object(fingerprints, 'evaluate_sources'):
+            before = fingerprints.fingerprint(obj)
+            key.co[1] = .5
+            self.assertNotEqual(fingerprints.fingerprint(obj), before)
+            key.co[1] = 0.
+            curve.modifiers.append(SimpleNamespace(type='GENERATOR', bl_rna=SimpleNamespace(properties=[])))
+            self.assertNotEqual(fingerprints.fingerprint(obj), before)
+
+    def test_legacy_action_curves_work_without_layers_or_slots(self):
+        curve = SimpleNamespace(data_path='location', array_index=0)
+        for action in (SimpleNamespace(fcurves=[curve]),
+                       SimpleNamespace(fcurves=[curve], layers=[], slots=[])):
+            self.assertEqual(fingerprints.action_curves(action), [curve])
+
+    def test_layered_action_curves_preserve_all_channelbags(self):
+        first, second = object(), object()
+        strip = SimpleNamespace(channelbag=lambda slot: SimpleNamespace(fcurves=[first, second]) if slot == 1 else None)
+        action = SimpleNamespace(layers=[SimpleNamespace(strips=[strip])], slots=[0, 1])
+        self.assertEqual(fingerprints.action_curves(action), [first, second])
+
     def test_compact_findings_preserve_complete_faces_and_reconstruct_actionable_results(self):
         identity = 'shirt-' + 'a' * 64
         faces = list(range(2000))

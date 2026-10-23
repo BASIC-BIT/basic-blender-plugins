@@ -18,6 +18,14 @@ with patch.dict(sys.modules, {'fixture.core.clothing_motion': motion}):
 
 
 class IndependentMotionTests(unittest.TestCase):
+    def test_utility_group_declarations_require_exact_object_and_group_names(self):
+        for value in (None, [], {'': ['Mask']}, {'shirt': 'Mask'}, {'shirt': [1]}, {'shirt': ['']}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                sampling.prepare({'utility_groups': value})
+        configured = {'shirt': ['Mask', 'Pin']}
+        settings, _, _ = sampling.prepare({'utility_groups': configured})
+        self.assertEqual(settings['utility_groups'], configured)
+
     def cases(self, budget=100000, shapes=None):
         return motion.seed_cases(motion.PROFILES, shapes, budget=budget, steps=3)
 

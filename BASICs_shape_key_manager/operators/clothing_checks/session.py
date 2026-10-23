@@ -27,6 +27,8 @@ class ValidationSession:
         self.closed, self.retained, self.current = False, False, None
         self.settings, self.queue, self.expected = prepare(settings)
         rows, self.sources = preflight(body, rig, pairs)
+        if set(self.settings['utility_groups']) - {identity for _, _, identity in rows}:
+            raise ValueError('utility groups name an uncaptured garment ID')
         mapping = resolve_mapping(rig, mapping)
         self.fingerprints = fingerprint_inputs(self.sources)
         self.scale = context.scene.unit_settings.scale_length
@@ -70,7 +72,8 @@ class ValidationSession:
                 for copy, role in [(before, 'REFERENCE'), (after, 'CANDIDATE')]:
                     copy['_basic_clothing_id'], copy['_basic_clothing_role'] = identity, role
                 self.pairs.append((before, after, identity))
-                self.report['weights'][identity] = weight_report(ref, candidate, rig)
+                self.report['weights'][identity] = weight_report(ref, candidate, rig,
+                    self.settings['utility_groups'].get(identity, []))
             for source, clone in self.copies.items():
                 if clone.parent and clone.parent.type == 'ARMATURE':
                     world = clone.matrix_world.copy()
@@ -166,7 +169,7 @@ class ValidationSession:
             raise ValueError('requested shape values differ from effective evaluated values: ' +
                              json.dumps(mismatches, allow_nan=False))
         solved['effective_shape_values'] = effective
-        crossings = body_self_crossings(snapshots[self.body])
+        crossings = body_self_crossings(snapshots[self.body], self.settings['contact_m'])
         shape = case['shape_case']
         plain_neutral = case['motion'] == 'neutral' and not any(key in case for key in
             ('controls', 'target_offsets_m', 'accessory_bones', 'accessory_axis', 'phase', 'sequence'))
@@ -177,7 +180,8 @@ class ValidationSession:
             neutral = dict(profile=case['profile'], motion='neutral', t=0.,
                            shape_case=shape, shape_values=deepcopy(values))
             self.motion.apply(neutral)
-            self.neutral_crossings[shape] = body_self_crossings(self._snapshots([self.body])[self.body])
+            self.neutral_crossings[shape] = body_self_crossings(
+                self._snapshots([self.body])[self.body], self.settings['contact_m'])
             self.motion.apply(case)
         solved['body_self_crossings_new'] = [list(p) for p in sorted(crossings - self.neutral_crossings[shape])]
         solved['body_self_crossings_baseline'] = [list(p) for p in sorted(self.neutral_crossings[shape])]

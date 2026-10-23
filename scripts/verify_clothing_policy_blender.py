@@ -45,6 +45,104 @@ def reject(call):
     raise AssertionError('malformed region accepted')
 
 
+def utility_group_audit():
+    session = fixture.session
+    reporting = importlib.import_module(PACKAGE + '.operators.clothing_checks.reporting')
+    body, rig, pairs, mapping, settings = fixture.setup('UtilityAudit')
+    ref, candidate = pairs[0]['reference'], pairs[0]['candidate']
+    for obj in (ref, candidate):
+        for name in ('Mask', 'Pin', 'hip_typo'):
+            obj.vertex_groups.new(name=name).add([0, 1, 2], .7, 'REPLACE')
+    raw = reporting.weight_report(ref, candidate, rig)
+    assert {row['name'] for row in raw['missing_bones']} == {'Mask', 'Pin', 'hip_typo'}
+    audit = reporting.weight_report(ref, candidate, rig, utility_groups=['Mask', 'Pin'])
+    assert {row['name'] for row in audit['missing_bones']} == {'hip_typo'}
+    assert audit['excluded_utility_groups'] == ['Mask', 'Pin']
+    for names in (['hips'], ['not_a_group'], 'Mask'):
+        fixture.fixture.reject(lambda: reporting.weight_report(ref, candidate, rig, utility_groups=names), 'utility')
+    for obj in (ref, candidate):
+        obj.vertex_groups.remove(obj.vertex_groups['hip_typo'])
+    candidate.vertex_groups['hips'].lock_weight = True
+    identity = session.logical_id(candidate)
+    settings['utility_groups'] = {identity: ['Mask', 'Pin']}
+    report = session.run_validation(bpy.context, body, rig, pairs, mapping, settings)
+    assert report['status'] == 'COMPLETED' and report['weights'][identity]['valid'], report['errors']
+    assert report['weights'][identity]['excluded_utility_groups'] == ['Mask', 'Pin']
+    assert report['settings']['utility_groups'] == settings['utility_groups']
+    fixture.fixture.reject(lambda: session.ValidationSession(bpy.context, body, rig, pairs, mapping,
+                           dict(settings, utility_groups={'unknown': ['Mask']})), 'utility')
+    addon = importlib.import_module(PACKAGE)
+    if not hasattr(bpy.types.Scene, 'clothing_checks'):
+        addon.register()
+    options = bpy.context.scene.clothing_checks
+    options.pairs.clear()
+    options.mapping.clear()
+    options.shapes.clear()
+    options.body, options.rig, options.mapping_confirmed = body, rig, True
+    row = options.pairs.add()
+    row.reference, row.candidate, row.confirmed = ref, candidate, True
+    for canonical, bone in mapping.items():
+        row = options.mapping.add()
+        row.canonical, row.bone = canonical, bone
+    options.utility_groups = json.dumps(settings['utility_groups'])
+    authoring = importlib.import_module(PACKAGE + '.operators.clothing_checks.authoring')
+    assert authoring.inputs_from_ui(bpy.context)[-1]['utility_groups'] == settings['utility_groups']
+    options.utility_groups, options.replay, options.report_text = '{}', True, report['text']
+    assert authoring.inputs_from_ui(bpy.context)[-1]['utility_groups'] == settings['utility_groups']
+    legacy = dict(report, settings={key: value for key, value in report['settings'].items() if key != 'utility_groups'})
+    legacy_text = bpy.data.texts.new('Legacy utility settings fixture')
+    legacy_text.write(json.dumps(legacy))
+    options.report_text, options.utility_groups = legacy_text.name, json.dumps(settings['utility_groups'])
+    assert authoring.inputs_from_ui(bpy.context)[-1]['utility_groups'] == {}, 'legacy replay adopted current utility exclusions'
+    bpy.data.texts.remove(legacy_text)
+    options.utility_groups = '{}'
+    options.pairs.clear()
+    options.mapping.clear()
+    options.replay = False
+
+
+def cross_role_pair_reuse():
+    session = fixture.session
+    body, rig, pairs, mapping, settings = fixture.setup('PairOwnership')
+    ref, candidate = pairs[0]['reference'], pairs[0]['candidate']
+    third = fixture.fixture.mesh('ThirdGarment', rig, .03)
+    for second in (dict(reference=candidate, candidate=third, confirmed=True),
+                   dict(reference=third, candidate=ref, confirmed=True)):
+        scenes = set(bpy.data.scenes)
+        original = session.fingerprint_inputs([body, rig, ref, candidate, third])
+        fixture.fixture.reject(lambda: session.ValidationSession(bpy.context, body, rig,
+                               [pairs[0], second], mapping, settings), 'duplicate')
+        assert set(bpy.data.scenes) == scenes
+        assert session.fingerprint_inputs([body, rig, ref, candidate, third]) == original
+    # Baseline capture intentionally uses one object's self-pair, not cross-pair reuse.
+    captured = fixture.baseline.capture_baseline(bpy.context, body, rig, [candidate])
+    assert captured['pairs']
+
+
+def session_body_contact_band():
+    session = fixture.session
+    body, rig, pairs, mapping, settings = fixture.setup('BodyContactBand')
+    body.data = bpy.data.meshes.new('ShallowBodyCrossing')
+    body.data.from_pydata([(-.1, -.1, 1), (.1, -.1, 1), (0, .1, 1),
+                          (0, -.05, 1 - 1e-5), (0, -.05, 1 + 1e-5), (0, .05, 1)],
+                         [], [(0, 1, 2), (3, 4, 5)])
+    body.vertex_groups.new(name='hips').add(list(range(6)), 1., 'REPLACE')
+    region = body.data.attributes.new('body_region', 'BOOLEAN', 'FACE')
+    for face in region.data:
+        face.value = True
+    settings['region_definitions'] = {session.logical_id(body): {'body': {'attribute': 'body_region'}}}
+    sources = [body, rig, pairs[0]['reference'], pairs[0]['candidate']]
+    original = session.fingerprint_inputs(sources)
+    for tolerance, expected in ((1e-4, []), (1e-6, [[0, 1]])):
+        report = session.run_validation(bpy.context, body, rig, pairs, mapping, dict(settings, contact_m=tolerance))
+        assert report['status'] == 'COMPLETED', report['errors']
+        pose = report['poses'][0]
+        assert pose['body_self_crossings_baseline'] == expected, (tolerance, pose['body_self_crossings_baseline'])
+        assert not pose['body_self_crossings_new'], (tolerance, pose['body_self_crossings_new'])
+        assert pose['regional_body_plausibility']['body']['global_crossing_count'] == len(expected)
+    assert session.fingerprint_inputs(sources) == original
+
+
 def nested_containment_ownership():
     faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
              (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
@@ -266,7 +364,9 @@ print('CLOTHING_POLICY_FRESH_REOPEN_OK')'''
     print('CLOTHING_POLICY_SESSION_OK')
 
 
-for test in (uncontrolled_neutral_baseline, nested_containment_ownership, bulk_equivalence, self_and_regions, session_policy):
+for test in (cross_role_pair_reuse, utility_group_audit, session_body_contact_band,
+             uncontrolled_neutral_baseline, nested_containment_ownership,
+             bulk_equivalence, self_and_regions, session_policy):
     test()
     print('PASS', test.__name__)
 print('CLOTHING_POLICY_OK')

@@ -68,6 +68,21 @@ def _curve_settings(curve):
     return [_rna_settings(curve), [[modifier.type, _rna_settings(modifier)] for modifier in curve.modifiers]]
 
 
+def action_curves(action):
+    """Read Blender 4.3 legacy actions and newer layered channelbags."""
+    layers = getattr(action, 'layers', ())
+    if not layers:
+        return list(getattr(action, 'fcurves', ()))
+    curves = []
+    for layer in layers:
+        for strip in layer.strips:
+            for slot in action.slots:
+                bag = strip.channelbag(slot)
+                if bag:
+                    curves.extend(bag.fcurves)
+    return curves
+
+
 def _animation(block):
     animation = block.animation_data
     if not animation:
@@ -81,14 +96,9 @@ def _animation(block):
                             for t in v.targets]] for v in curve.driver.variables]])
     action, curves = animation.action, []
     if action:
-        for layer in action.layers:
-            for strip in layer.strips:
-                for slot in action.slots:
-                    bag = strip.channelbag(slot)
-                    if bag:
-                        curves.extend([c.data_path, c.array_index, c.extrapolation, _curve_settings(c),
-                                       [[list(k.co), list(k.handle_left), list(k.handle_right),
-                                         k.interpolation] for k in c.keyframe_points]] for c in bag.fcurves)
+        curves = [[c.data_path, c.array_index, c.extrapolation, _curve_settings(c),
+                   [[list(k.co), list(k.handle_left), list(k.handle_right),
+                     k.interpolation] for k in c.keyframe_points]] for c in action_curves(action)]
     return [action.name if action else None, curves, drivers]
 
 

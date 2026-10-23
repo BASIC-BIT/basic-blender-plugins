@@ -93,10 +93,11 @@ def snapshot_mesh(obj, depsgraph, stable=None, unit_scale=1.0, *, scalar=False):
             '_probe_layout': layout if layout is not None else probe_layout(triangles, polygons)}
 
 
-def body_self_crossings(snapshot):
+def body_self_crossings(snapshot, contact_m=0.0001):
     """Return nonadjacent intersecting source polygon pairs for plausibility checks."""
+    _positive(contact_m, 'contact_m', zero=True)
     return {tuple(sorted((snapshot['polygons'][i], snapshot['polygons'][j])))
-            for i, j in self_pairs(snapshot)}
+            for i, j in self_pairs(snapshot, contact_m=contact_m)}
 
 
 def body_self_contacts(snapshot):
@@ -107,8 +108,7 @@ def body_self_contacts(snapshot):
 def analyze_self(snapshot, contact_m=0.0001):
     """Nonadjacent garment intersections with one real owner and explicit SELF kind."""
     _positive(contact_m, 'contact_m', zero=True)
-    pairs = sorted(pair for pair in self_pairs(snapshot, contacts=True)
-                   if crossing(snapshot, pair[0], snapshot, pair[1], contact_m))
+    pairs = sorted(self_pairs(snapshot, contact_m=contact_m))
     polygons = sorted({tuple(sorted((snapshot['polygons'][i], snapshot['polygons'][j])))
                        for i, j in pairs})
     identity = snapshot['id']

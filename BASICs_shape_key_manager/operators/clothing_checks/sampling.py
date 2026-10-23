@@ -9,6 +9,12 @@ def prepare(settings):
     if not isinstance(settings, dict):
         raise ValueError('settings must be a dictionary')
     result = deepcopy(settings)
+    utility = result.setdefault('utility_groups', {})
+    if (not isinstance(utility, dict) or any(
+            not isinstance(identity, str) or not identity or not isinstance(names, list) or
+            any(not isinstance(name, str) or not name for name in names)
+            for identity, names in utility.items())):
+        raise ValueError('utility groups require captured garment ID -> list of exact group names')
     if ('cases' in result or 'replay_coverage' in result) and 'motion_library_version' not in result:
         raise ValueError('legacy or authored cases require an explicit motion library version')
     if result.get('motion_library_version', LIBRARY_VERSION) != LIBRARY_VERSION:

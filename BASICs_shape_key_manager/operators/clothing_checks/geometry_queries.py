@@ -21,13 +21,13 @@ def crossing(a, ia, b, ib, tolerance):
     return True
 
 
-def self_pairs(snapshot, contacts=False):
+def self_pairs(snapshot, contacts=False, contact_m=1e-8):
     """Exclude shared vertices, including a quad's own captured diagonal."""
     result = set()
     for i, j in snapshot['bvh'].overlap(snapshot['bvh']):
         if i >= j or set(snapshot['triangles'][i]) & set(snapshot['triangles'][j]):
             continue
-        if contacts or crossing(snapshot, i, snapshot, j, 1e-8):
+        if contacts or crossing(snapshot, i, snapshot, j, contact_m):
             result.add((i, j))
     return result
 

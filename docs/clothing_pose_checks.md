@@ -60,6 +60,16 @@ Every garment is checked against the body, every other selected garment and
 itself. Self checks omit adjacent triangles that share vertices.
 Weight audits separately record normalization, missing bones, four-influence
 violations and changes to locked deform groups. Audits never repair weights.
+Declare utility masks explicitly in **Utility groups JSON**, for example
+`{"captured-garment-id":["Mask","Pin"]}`. Use IDs from baseline/report bindings
+and exact group names. Declared existing non-bone groups are excluded from the
+deform audit and listed in `excluded_utility_groups`; undeclared unknown names
+still report missing bones. Rig-bone names and nonexistent groups cannot be
+declared as utilities. Declarations are captured in settings and retained on replay.
+
+Body and garment self-crossing screens use the same configured contact band in
+meters. Body neutral baselines use that band too; shallow contact within it is
+not promoted to a new body crossing.
 
 Absolute findings include candidate crossings and supported containment even
 when the same clipping exists in the baseline. Confirmed `CLIPPING` stays visible

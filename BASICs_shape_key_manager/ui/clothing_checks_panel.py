@@ -92,6 +92,7 @@ class BASIC_PT_clothing_pose_checks(bpy.types.Panel):
         box.prop(settings, 'accessory_bones')
         box.prop(settings, 'region_definitions')
         box.prop(settings, 'contact_allowances')
+        box.prop(settings, 'utility_groups')
         box.label(text='Regions use captured IDs and fixed FACE attributes')
         op = box.operator('basic.run_clothing_checks', text='Preview neutral / reach / bend calibration')
         op.calibration = True

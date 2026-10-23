@@ -56,6 +56,30 @@ def test_outside_vertices_crossing_and_contact():
     assert result['absolute_fit'] == 'INDETERMINATE', result
 
 
+def test_body_and_garment_self_crossings_share_contact_band():
+    for depth in (1e-5, 1e-3):
+        obj = mesh('contact-band-' + str(depth),
+                   [(-1, -1, 0), (1, -1, 0), (0, 1, 0),
+                    (0, -.5, -depth), (0, -.5, depth), (0, .5, 0)],
+                   [(0, 1, 2), (3, 4, 5)])
+        native = snapshot(obj)
+        expected_default = {(0, 1)} if depth > .0001 else set()
+        assert geometry.body_self_crossings(native) == expected_default, 'body/garment default contact bands differ'
+        for tolerance in (0., 1e-6, 1e-4):
+            expected = {(0, 1)} if depth > tolerance else set()
+            actual = geometry.body_self_crossings(native, contact_m=tolerance)
+            assert actual == expected, (depth, tolerance, actual)
+            garment = geometry.analyze_self(native, contact_m=tolerance)
+            assert {tuple(pair) for pair in garment['polygon_pairs']} == expected
+    for tolerance in (-1., float('nan'), True):
+        try:
+            geometry.body_self_crossings(native, contact_m=tolerance)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('invalid body contact band accepted')
+
+
 def test_buried_reversed_open_and_density():
     outer, inner = snapshot(cube('outer')), snapshot(cube('inner', .2))
     result = geometry.analyze_pair(outer, inner)
@@ -259,7 +283,8 @@ def benchmark_outfit(manifest_path):
     print('ACTUAL_OUTFIT_GEOMETRY_BENCHMARK', json.dumps(result, sort_keys=True))
 
 
-for test in (test_outside_vertices_crossing_and_contact, test_buried_reversed_open_and_density,
+for test in (test_outside_vertices_crossing_and_contact, test_body_and_garment_self_crossings_share_contact_band,
+             test_buried_reversed_open_and_density,
              test_fixed_quad_triangles_and_reordered_topology,
              test_self_intersection_and_bad_orientation, test_near_edge_ray_ambiguity,
              test_primary_fit_and_bounded_sampling, test_thin_shell_cavity_never_becomes_interior,

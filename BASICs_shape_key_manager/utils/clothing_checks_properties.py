@@ -37,6 +37,8 @@ class BASIC_ClothingSettings(bpy.types.PropertyGroup):
         description='Captured object ID -> region name -> {attribute: FACE attribute name, value: integer}')
     contact_allowances: StringProperty(name='Contact allowances JSON', default='[]',
         description='Rules with kind CROSSING/CONTACT/CONTAINED and endpoints a/b {object_id, region}')
+    utility_groups: StringProperty(name='Utility groups JSON', default='{}',
+        description='Captured garment ID -> exact non-bone group names excluded from deform-weight audits')
     families: EnumProperty(name='Motion families', options={'ENUM_FLAG'}, items=[
         ('neutral', 'Neutral', ''), ('reach', 'Reach', ''), ('arm', 'Arm', ''),
         ('torso', 'Torso', ''), ('lower_body', 'Lower body', ''),
