@@ -1,0 +1,132 @@
+{
+  "title": "BASICs Shape Key Manager Architecture",
+  "areas": [
+    {
+      "name": "Clothing pose checks",
+      "when": "Changing immutable baseline capture, paired collision diagnostics, synthetic IK, validation jobs or review scenes",
+      "source": [
+        "BASICs_shape_key_manager/core/clothing_checks.py",
+        "BASICs_shape_key_manager/core/clothing_motion.py",
+        "BASICs_shape_key_manager/operators/clothing_checks",
+        "BASICs_shape_key_manager/ui/clothing_checks_panel.py",
+        "BASICs_shape_key_manager/utils/clothing_checks_properties.py",
+        "BASICs_shape_key_manager/core/clothing_policy.py"
+      ],
+      "tests": [
+        "tests/test_clothing_checks.py",
+        "tests/test_clothing_motion.py",
+        "tests/test_clothing_reporting.py",
+        "scripts/verify_clothing_geometry_blender.py",
+        "scripts/verify_clothing_ik_blender.py",
+        "scripts/verify_clothing_shoulders_blender.py",
+        "scripts/verify_clothing_checks_blender.py",
+        "scripts/verify_clothing_session_regressions.py",
+        "scripts/verify_clothing_inactive_sources.py",
+        "scripts/clothing_session_reopen.py",
+        "scripts/clothing_export_fixture.py",
+        "scripts/verify_clothing_export_blender.py",
+        "tests/test_clothing_policy.py",
+        "scripts/verify_clothing_policy_blender.py",
+        "tests/test_clothing_independent_motion.py"
+      ],
+      "docs": [
+        "docs/clothing_pose_checks.md"
+      ]
+    },
+    {
+      "name": "Addon registration and UI",
+      "when": "Changing registration, sidebar layout, or persistent scene properties",
+      "source": [
+        "BASICs_shape_key_manager/__init__.py",
+        "BASICs_shape_key_manager/operators/__init__.py",
+        "BASICs_shape_key_manager/ui",
+        "BASICs_shape_key_manager/utils"
+      ],
+      "tests": [],
+      "docs": [
+        "README.md"
+      ]
+    },
+    {
+      "name": "Shape-key mirror and spatial matching",
+      "when": "Changing side naming, mirrored vertex matching or nearest-point lookup",
+      "source": [
+        "BASICs_shape_key_manager/core/mirror_utils.py",
+        "BASICs_shape_key_manager/core/octree.py"
+      ],
+      "tests": [
+        "tests/test_core_mirroring.py"
+      ],
+      "docs": [
+        "docs/AI_FUNCTIONALITY_GUIDE.md"
+      ]
+    },
+    {
+      "name": "Polyloop reduction",
+      "when": "Changing existing loop scoring, dissolve or reduction",
+      "source": [
+        "BASICs_shape_key_manager/core/polyloop_reduction.py",
+        "BASICs_shape_key_manager/core/polyloop_dissolve.py",
+        "BASICs_shape_key_manager/core/polyloop_models.py",
+        "BASICs_shape_key_manager/operators/polyloop_ops.py",
+        "BASICs_shape_key_manager/operators/polyloop_guards.py"
+      ],
+      "tests": [
+        "tests/test_polyloop_reduction.py",
+        "tests/test_polyloop_dissolve.py",
+        "tests/test_polyloop_ops_shape_keys.py"
+      ],
+      "docs": [
+        "docs/molt_design.md"
+      ]
+    },
+    {
+      "name": "Armature maintenance",
+      "when": "Changing bone cleanup, weight rollup or modifier repair",
+      "source": [
+        "BASICs_shape_key_manager/operators/armature_ops.py",
+        "BASICs_shape_key_manager/operators/armature_modifiers.py"
+      ],
+      "tests": [],
+      "docs": [
+        "docs/AI_FUNCTIONALITY_GUIDE.md"
+      ]
+    },
+    {
+      "name": "Vertex groups and explicit clothing refit",
+      "when": "Changing protected transfer, group cleanup, rigid anchors, painting, or blending",
+      "source": [
+        "BASICs_shape_key_manager/core/vertex_group_utils.py",
+        "BASICs_shape_key_manager/core/weight_refit.py",
+        "BASICs_shape_key_manager/operators/weights",
+        "BASICs_shape_key_manager/operators/vertex_group_ops.py"
+      ],
+      "tests": [
+        "tests/test_vertex_group_utils_mock.py",
+        "tests/test_weight_refit.py",
+        "scripts/verify_weight_refit_blender.py"
+      ],
+      "docs": [
+        "docs/AI_FUNCTIONALITY_GUIDE.md",
+        "docs/weight_refit.md"
+      ]
+    },
+    {
+      "name": "Repository quality and Blender CI",
+      "when": "Changing test discovery, coverage gates, package verification, or installed-extension smoke checks",
+      "source": [
+        "scripts/run_coverage.py",
+        "scripts/run_blender_checks.py",
+        ".github/workflows/blender-integration.yml"
+      ],
+      "tests": [
+        "tests/tooling",
+        "scripts/verify_blender_factory_import.py",
+        "scripts/verify_blender_registration.py"
+      ],
+      "docs": [
+        "docs/testing.md"
+      ]
+    }
+  ]
+}

@@ -1,8 +1,10 @@
 import bpy
 from bpy.props import FloatProperty, BoolProperty, StringProperty
+from . import clothing_checks_properties
 
 # Define scene properties for persistent settings
 def register_properties():
+    clothing_checks_properties.register()
     bpy.types.Scene.shapekey_transfer_strength = FloatProperty(
         name="Shape Key Strength",
         description="Strength to apply when creating shape keys",
@@ -74,6 +76,7 @@ def register_properties():
     )
 
 def unregister_properties():
+    clothing_checks_properties.unregister()
     del bpy.types.Scene.shapekey_transfer_strength
     del bpy.types.Scene.shapekey_transfer_clear_existing
     del bpy.types.Scene.shapekey_transfer_skip_minimal

@@ -1,0 +1,15 @@
+[run]
+branch = True
+source =
+    BASICs_shape_key_manager/core
+omit =
+    */__init__.py
+
+[report]
+fail_under = 77.5
+precision = 1
+show_missing = True
+skip_empty = True
+
+[xml]
+output = coverage.xml
