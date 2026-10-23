@@ -306,6 +306,7 @@ def session_policy():
                           (11, -1, -1), (11, -1, 1), (11, 1, 0),
                           (-.1, -.1, 1), (.1, -.1, 1), (0, .1, 1)], [],
                          [(0, 1, 2), (3, 4, 5), (6, 7, 8)])
+    body.vertex_groups.new(name='hips').add(range(len(body.data.vertices)), 1., 'REPLACE')
     region = body.data.attributes.new('anatomy', 'INT', 'FACE')
     region.data[0].value, region.data[1].value, region.data[2].value = 1, 1, 2
     for obj in (pairs[0]['reference'], source):

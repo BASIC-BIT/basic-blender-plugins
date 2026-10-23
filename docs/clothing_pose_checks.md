@@ -195,6 +195,22 @@ and the armature's Pose/Rest evaluation mode. Changing these requires recapturin
 the baseline. Rig labels, ownership, current pose bases and creator display,
 selection or collection changes (including B-Bone display widths) remain allowed.
 
+The body must have a viewport-enabled Armature modifier targeting the selected
+rig. It needs positive weights matching deform bones, or enabled bone envelopes;
+an effective modifier mask must allow some influence. A body without that
+supported deformation path stops before any copies are allocated. Clothing
+weight defects remain findings in the report rather than this body-input check.
+
+Retained review copies are checked before preview changes any pose, shape value
+or display state. Manual changes to their transforms, rest data, weights, shape
+geometry/values, modifiers, rig deformation settings, frame or unit scale stop
+preview and preserve those edits. Rerun validation to produce new review copies.
+Ordinary selection, wire/display settings and unpinned active-key selection
+remain allowed. Successful controlled replay records the newly accepted state;
+repeated preview and saved-file reopen use that state. Older retained reports
+without review-integrity metadata require another validation run. Source
+fingerprint format v2 and existing baseline captures remain valid.
+
 Editing either Before/After mesh clears that pair's confirmation. Changing the
 selected rig or a mapping field clears mapping confirmation; its saved signature
 also detects collection edits. Confirm the current inputs again before running.

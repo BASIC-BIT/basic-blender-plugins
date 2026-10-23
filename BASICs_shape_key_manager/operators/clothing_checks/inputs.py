@@ -20,6 +20,27 @@ def data_blocks(objects):
     return list(dict.fromkeys(blocks))
 
 
+def body_deforms(body, rig):
+    """Require the supported viewport deformation path, not a static body proxy."""
+    deform = {bone.name for bone in rig.data.bones if bone.use_deform}
+    groups = {group.index for group in body.vertex_groups if group.name in deform}
+    envelopes = any(bone.use_deform and bone.envelope_weight > 0 for bone in rig.data.bones)
+    for mod in body.modifiers:
+        if mod.type != 'ARMATURE' or mod.object != rig or not mod.show_viewport:
+            continue
+        mask = body.vertex_groups.get(mod.vertex_group)
+        for vertex in body.data.vertices:
+            if mask:
+                amount = next((g.weight for g in vertex.groups if g.group == mask.index), 0.)
+                if (1 - amount if mod.invert_vertex_group else amount) <= 0:
+                    continue
+            if mod.use_bone_envelopes and envelopes:
+                return True
+            if mod.use_vertex_groups and any(g.group in groups and g.weight > 0 for g in vertex.groups):
+                return True
+    return False
+
+
 def preflight(body, rig, pairs, *, capturing=False):
     main_thread()
     if body is None or body.type != 'MESH' or rig is None or rig.type != 'ARMATURE':
@@ -102,6 +123,9 @@ def preflight(body, rig, pairs, *, capturing=False):
                              ' before capture or validation; CURRENT uses the evaluated numeric blend')
         if obj.type == 'ARMATURE' and any(b.bbone_segments > 1 for b in obj.data.bones):
             raise ValueError('segmented B-Bone deformation is unsupported')
+    if not body_deforms(body, rig):
+        raise ValueError('body requires a viewport-enabled Armature modifier targeting the selected rig '
+                         'with positive deform weights or enabled bone envelopes')
     for block in blocks:
         animation = block.animation_data
         if not animation:

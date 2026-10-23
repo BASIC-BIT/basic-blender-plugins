@@ -6,6 +6,7 @@ from .shapes import effective_shapes
 from .reporting import validate_report
 from .identities import read_source_ids
 from .fingerprints import FINGERPRINT_FORMAT
+from .review_state import validate_review_state, accept_review_state
 
 _views = {}
 
@@ -27,6 +28,7 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
         raise ValueError('choose a saved pair finding')
     if context.mode != 'OBJECT':
         raise ValueError('leave native Edit/Pose mode before preview')
+    validate_review_state(scene)
     result = report['results'][result_index]
     pose = report['poses'][result['pose_index']]
     rig = next(o for o in scene.objects if o.get('_basic_clothing_role') == 'RIG')
@@ -73,6 +75,7 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
         if any(abs(effective.get(name, {}).get(key, float('inf')) - value) > 1e-6 for key, value in keys.items()):
             clear_preview(context)
             raise ValueError('saved effective shape state could not be replayed for ' + name)
+    accept_review_state(scene)
     return scene
 
 

@@ -18,6 +18,7 @@ from .fingerprints import FINGERPRINT_FORMAT
 from .sampling import prepare, refinements, coverage
 from .reporting import compact_finding, weight_report, summarize, persist
 from .shapes import effective_shapes, requested_mismatches
+from .review_state import accept_review_state
 
 
 class ValidationSession:
@@ -245,6 +246,9 @@ class ValidationSession:
         self._update_coverage(self.truncated)
         self.scene.use_fake_user = True
         self.scene['_basic_clothing_kind'] = 'REVIEW'
+        # Retain the actual post-teardown copies, not temporary IK controls/bases.
+        self.motion.close()
+        accept_review_state(self.scene, initialize=True)
         persist(self.report, self.scene)
         self.retained = True
         self.close()

@@ -148,7 +148,7 @@ def _bulk(digest, label, collection, attribute, width, code='f'):
     _feed(digest, label, values)
 
 
-def _fingerprint(obj, identities):
+def _fingerprint(obj, identities, *, review=False):
     digest = hashlib.sha256(FINGERPRINT_FORMAT.encode() + b'\0')
     values = {'type': obj.type, 'matrix': [list(r) for r in obj.matrix_world],
               'properties': _properties(obj, identities), 'data_properties': _properties(obj.data, identities),
@@ -172,9 +172,10 @@ def _fingerprint(obj, identities):
         _bulk(digest, 'loop_vertices', mesh.loops, 'vertex_index', 1, 'i')
         _bulk(digest, 'polygon_starts', mesh.polygons, 'loop_start', 1, 'i')
         _bulk(digest, 'polygon_sizes', mesh.polygons, 'loop_total', 1, 'i')
-        values['face_attributes'] = [[a.name, a.domain, a.data_type] for a in mesh.attributes
-                                     if a.domain == 'FACE']
-        for attribute in mesh.attributes:
+        face_attributes = [a for a in mesh.attributes if a.domain == 'FACE' and
+                           not (review and a.name in {'.select_poly', '.hide_poly'})]
+        values['face_attributes'] = [[a.name, a.domain, a.data_type] for a in face_attributes]
+        for attribute in face_attributes:
             if attribute.domain == 'FACE' and attribute.data_type in {'BOOLEAN', 'INT'}:
                 _bulk(digest, 'face:' + attribute.name, attribute.data, 'value', 1, 'i')
         counts, groups, weights = array('i'), array('i'), array('f')
@@ -187,7 +188,8 @@ def _fingerprint(obj, identities):
             _feed(digest, label, payload)
         values.update(groups=[[g.name, g.lock_weight] for g in obj.vertex_groups], data_animation=_animation(mesh, identities))
         if mesh.shape_keys:
-            values['shape_display'] = [obj.show_only_shape_key, obj.active_shape_key_index]
+            values['shape_display'] = [obj.show_only_shape_key,
+                obj.active_shape_key_index if obj.show_only_shape_key or not review else None]
             animation = mesh.shape_keys.animation_data
             driven = {curve.data_path for curve in animation.drivers if not curve.mute} if animation else set()
             # Active driver outputs are derived state; their authored inputs are hashed above/below.
@@ -216,9 +218,9 @@ def fingerprint(obj, source_ids=None):
     return _fingerprint(obj, _block_ids(source_ids))
 
 
-def fingerprint_inputs(objects, source_ids=None):
+def fingerprint_inputs(objects, source_ids=None, *, review=False):
     objects = list(dict.fromkeys(objects))
     evaluate_sources(objects)
     identities = _block_ids(source_ids)
-    return {source_ids[obj] if source_ids is not None else obj.name_full: _fingerprint(obj, identities)
+    return {source_ids[obj] if source_ids is not None else obj.name_full: _fingerprint(obj, identities, review=review)
             for obj in objects}
