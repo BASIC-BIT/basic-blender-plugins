@@ -1,18 +1,38 @@
 """Native authoring fields for explicit clothing validation inputs."""
+import json
 import bpy
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty,
                        IntProperty, PointerProperty, StringProperty)
 
 
+def clear_pair_confirmation(self, _context):
+    self.confirmed = False
+
+
+def clear_mapping_confirmation(self, _context):
+    self.id_data.clothing_checks.mapping_confirmed = False
+
+
+def mapping_signature(options):
+    return json.dumps([(row.canonical, row.bone) for row in options.mapping])
+
+
+def capture_mapping_confirmation(self, _context):
+    self.confirmed_rig = self.rig if self.mapping_confirmed else None
+    self.confirmed_mapping = mapping_signature(self) if self.mapping_confirmed else ''
+
+
 class BASIC_ClothingPair(bpy.types.PropertyGroup):
-    reference: PointerProperty(name='Before', type=bpy.types.Object, poll=lambda _, o: o.type == 'MESH')
-    candidate: PointerProperty(name='After', type=bpy.types.Object, poll=lambda _, o: o.type == 'MESH')
+    reference: PointerProperty(name='Before', type=bpy.types.Object, poll=lambda _, o: o.type == 'MESH',
+                               update=clear_pair_confirmation)
+    candidate: PointerProperty(name='After', type=bpy.types.Object, poll=lambda _, o: o.type == 'MESH',
+                               update=clear_pair_confirmation)
     confirmed: BoolProperty(name='Confirm pairing', default=False)
 
 
 class BASIC_ClothingMapping(bpy.types.PropertyGroup):
-    canonical: StringProperty()
-    bone: StringProperty(name='Bone')
+    canonical: StringProperty(update=clear_mapping_confirmation)
+    bone: StringProperty(name='Bone', update=clear_mapping_confirmation)
 
 
 class BASIC_ClothingShape(bpy.types.PropertyGroup):
@@ -24,10 +44,14 @@ class BASIC_ClothingShape(bpy.types.PropertyGroup):
 
 class BASIC_ClothingSettings(bpy.types.PropertyGroup):
     body: PointerProperty(name='Body', type=bpy.types.Object, poll=lambda _, o: o.type == 'MESH')
-    rig: PointerProperty(name='Rig', type=bpy.types.Object, poll=lambda _, o: o.type == 'ARMATURE')
+    rig: PointerProperty(name='Rig', type=bpy.types.Object, poll=lambda _, o: o.type == 'ARMATURE',
+                         update=clear_mapping_confirmation)
     pairs: CollectionProperty(type=BASIC_ClothingPair)
     mapping: CollectionProperty(type=BASIC_ClothingMapping)
-    mapping_confirmed: BoolProperty(name='I confirm this humanoid mapping', default=False)
+    mapping_confirmed: BoolProperty(name='I confirm this humanoid mapping', default=False,
+                                    update=capture_mapping_confirmation)
+    confirmed_rig: PointerProperty(type=bpy.types.Object, options={'HIDDEN'})
+    confirmed_mapping: StringProperty(options={'HIDDEN'})
     bend_directions: StringProperty(name='Bend directions JSON', default='{}',
         description='Explicit armature-space vectors for collinear left_arm, right_arm, left_leg, right_leg')
     accessory_bones: StringProperty(name='Accessory bones JSON', default='[]',

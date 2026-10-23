@@ -1,6 +1,7 @@
 """Native baseline, pair, mapping and shape case authoring commands."""
 import json
 import bpy
+from ...utils.clothing_checks_properties import mapping_signature
 from .baseline import capture_baseline
 from .inputs import logical_id
 from .identities import resolve_bindings
@@ -18,10 +19,20 @@ def read_report(settings):
 
 def inputs_from_ui(context):
     options = context.scene.clothing_checks
-    if not options.mapping_confirmed:
+    if (not options.mapping_confirmed or options.confirmed_rig != options.rig or
+            options.confirmed_mapping != mapping_signature(options)):
         raise ValueError('confirm the mapping before running')
     mapping = {row.canonical: row.bone for row in options.mapping}
     pairs = [dict(reference=r.reference, candidate=r.candidate, confirmed=r.confirmed) for r in options.pairs]
+    if options.replay:
+        previous = read_report(options)
+        settings = previous['settings']
+        if settings.get('motion_library_version') != LIBRARY_VERSION:
+            raise ValueError('motion library changed; start a new run instead of replaying legacy cases')
+        settings.setdefault('utility_groups', {})
+        settings['cases'] = previous['cases']
+        settings['replay_coverage'] = previous['coverage']
+        return options.body, options.rig, pairs, mapping, settings
     valid_pairs = [pair for pair in pairs if pair['reference'] and pair['candidate']]
     body_id, pair_ids = resolve_bindings(options.body, valid_pairs) if options.body else (None, [])
     identities = {obj: identity for pair, identity in zip(valid_pairs, pair_ids)
@@ -45,19 +56,6 @@ def inputs_from_ui(context):
                     shape_cases=[{'id': 'current', 'values': {}}] +
                                 [{'id': name, 'values': values} for name, values in shapes.items()])
     settings['motion_library_version'] = LIBRARY_VERSION
-    if options.replay:
-        previous = read_report(options)
-        original = previous['settings']
-        settings['utility_groups'] = original.get('utility_groups', {})
-        if original.get('motion_library_version') != LIBRARY_VERSION:
-            raise ValueError('motion library changed; start a new run instead of replaying legacy cases')
-        for key in ('profiles', 'families', 'shape_cases', 'steps', 'refinement_depth', 'budget',
-                    'region_definitions', 'contact_allowances', 'contact_m', 'clearance_m',
-                    'worsening_m', 'sample_limit', 'bend_directions', 'accessory_bones'):
-            if key in original:
-                settings[key] = original[key]
-        settings['cases'] = previous['cases']
-        settings['replay_coverage'] = previous['coverage']
     return options.body, options.rig, pairs, mapping, settings
 
 

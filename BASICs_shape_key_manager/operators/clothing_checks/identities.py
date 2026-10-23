@@ -2,6 +2,22 @@
 import bpy
 
 
+def capture_source_ids(objects):
+    """Capture-local identities; native pointers are persisted only on owned scenes."""
+    return {obj: 'input:' + str(index) for index, obj in enumerate(dict.fromkeys(objects))}
+
+
+def retain_source_ids(scene, identities):
+    scene['_basic_clothing_sources'] = {identity: obj for obj, identity in identities.items()}
+
+
+def read_source_ids(scene):
+    captured = scene.get('_basic_clothing_sources')
+    if not captured or any(obj is None for obj in captured.values()):
+        raise ValueError('captured source bindings are missing; recapture the baseline and rerun')
+    return {obj: identity for identity, obj in captured.items()}
+
+
 def logical_id(obj):
     return str(obj.get('_basic_clothing_id') or f'object:{obj.session_uid}')
 

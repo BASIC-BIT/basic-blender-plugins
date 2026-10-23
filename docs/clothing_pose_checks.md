@@ -195,6 +195,29 @@ and the armature's Pose/Rest evaluation mode. Changing these requires recapturin
 the baseline. Rig labels, ownership, current pose bases and creator display,
 selection or collection changes (including B-Bone display widths) remain allowed.
 
+Editing either Before/After mesh clears that pair's confirmation. Changing the
+selected rig or a mapping field clears mapping confirmation; its saved signature
+also detects collection edits. Confirm the current inputs again before running.
+Saved-case replay uses retained settings before reading any unused live shape or
+JSON fields, while still requiring the current rig/mapping and pairs.
+
+With refinement enabled, one quarter of the case cap is reserved for adaptive
+search. The default cap starts with 384 of 738 stratified seeds and leaves 128
+slots for refinement. Omitted seeds, missing strata and unresolved intervals
+remain visible. Depth zero uses the full seed cap; exact replay keeps its cases.
+
+Fingerprint format `BASIC-CLOTHING-BINARY-2` uses captured input identities and
+native source pointers retained only on owned scenes. Rig/object labels and
+armature-data names can change without making unchanged geometry stale. Source
+properties are never changed to create identities. Previous-format baselines
+require a new capture, and previous-format reports require a new validation run.
+To preserve pre-edit geometry, choose the old baseline's frozen body and rig,
+select its frozen garments, and capture a new independent baseline. This route
+copies the frozen inputs and preserves the previous scene and evidence. Compare
+against that new capture or use the original pre-edit source if still available.
+If the original working body and rig remain the intended comparison inputs,
+keep those selected and capture the frozen garments into a new baseline instead.
+
 Explicit shape endpoints are checked against their effective evaluated values
 after native drivers and clamping. An unrealized value stops the run with the
 object, role, key, requested value and actual value in the report. CURRENT may use

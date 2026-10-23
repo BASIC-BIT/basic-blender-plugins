@@ -13,7 +13,8 @@ from .regions import capture_regions
 from .inputs import (main_thread, preflight, owned_copies, remove_scene,
                      fingerprint_inputs, logical_id, data_blocks)
 from .rig import IKMotionRig, resolve_mapping
-from .identities import resolve_bindings, retain_bindings
+from .identities import resolve_bindings, retain_bindings, capture_source_ids, retain_source_ids
+from .fingerprints import FINGERPRINT_FORMAT
 from .sampling import prepare, refinements, coverage
 from .reporting import compact_finding, weight_report, summarize, persist
 from .shapes import effective_shapes, requested_mismatches
@@ -30,13 +31,14 @@ class ValidationSession:
         if set(self.settings['utility_groups']) - {identity for _, _, identity in rows}:
             raise ValueError('utility groups name an uncaptured garment ID')
         mapping = resolve_mapping(rig, mapping)
-        self.fingerprints = fingerprint_inputs(self.sources)
+        self.source_ids = capture_source_ids(self.sources)
+        self.fingerprints = fingerprint_inputs(self.sources, self.source_ids)
         self.scale = context.scene.unit_settings.scale_length
         self.depth, self.measurements, self.stable = 0, [], {}
         self.neutral_crossings = {}
         self.owner = uuid.uuid4().hex
         self.report = {'id': self.owner, 'status': 'RUNNING', 'blender': bpy.app.version_string,
-                       'fingerprint_format': 'BASIC-CLOTHING-BINARY-1',
+                       'fingerprint_format': FINGERPRINT_FORMAT,
                        'regression_face_encoding': 'OBJECT_ID_TO_SOURCE_FACE_LIST',
                        'approximation': 'Synthetic constrained IK; not VRChat emulation or continuous collision proof',
                        'inputs': self.fingerprints, 'mapping': mapping, 'unit_scale': self.scale,
@@ -48,6 +50,7 @@ class ValidationSession:
         try:
             self.scene = bpy.data.scenes.new('BASIC Clothing Review ' + self.owner[:8])
             self.scene['_basic_clothing_owner'], self.scene['_basic_clothing_kind'] = self.owner, 'JOB'
+            retain_source_ids(self.scene, self.source_ids)
             self.scene.unit_settings.scale_length = self.scale
             self.copies = owned_copies(self.scene, self.sources, self.owner)
             self.body, self.rig = self.copies[body], self.copies[rig]
@@ -251,7 +254,7 @@ class ValidationSession:
         if self.report['status'] != 'RUNNING':
             return True
         try:
-            if self.current is None and (fingerprint_inputs(self.sources) != self.fingerprints or
+            if self.current is None and (fingerprint_inputs(self.sources, self.source_ids) != self.fingerprints or
                     self.context.scene.unit_settings.scale_length != self.scale):
                 self.report['status'] = 'STALE'
                 self.report['errors'].append('Source inputs changed during evaluation')

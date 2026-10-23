@@ -2,6 +2,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import sys
+from unittest.mock import patch
 
 PATH = Path(__file__).resolve().parents[1] / 'BASICs_shape_key_manager/core/clothing_motion.py'
 
@@ -13,6 +15,33 @@ class MotionTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('clothing_motion', PATH)
         cls.motion = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.motion)
+        spec = importlib.util.spec_from_file_location('fixture.operators.clothing_checks.sampling',
+            PATH.parents[1] / 'operators/clothing_checks/sampling.py')
+        cls.sampling = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {'fixture.core.clothing_motion': cls.motion}):
+            spec.loader.exec_module(cls.sampling)
+
+    def test_default_reserves_adaptive_capacity_without_hiding_seed_omissions(self):
+        settings, cases, expected = self.sampling.prepare({})
+        self.assertEqual((len(cases), len(expected)), (384, 738))
+        self.assertEqual(cases, expected[:384])
+        coverage = self.sampling.coverage(cases, expected, [], settings)
+        self.assertEqual(coverage['refinement_case_capacity'], 128)
+        self.assertEqual(coverage['uncovered_cases'], expected[384:])
+        self.assertEqual(coverage['uncovered_strata'], [])
+        self.assertEqual(coverage['status'], 'INCOMPLETE')
+        self.assertFalse(coverage['continuous_coverage'])
+
+    def test_zero_depth_and_authored_replays_keep_their_case_budget(self):
+        _, cases, _ = self.sampling.prepare({'refinement_depth': 0})
+        self.assertEqual(len(cases), 512)
+        for budget in (1, 2, 3):
+            _, cases, _ = self.sampling.prepare({'budget': budget})
+            self.assertEqual(len(cases), budget)
+        saved = self.motion.seed_cases(['HEAD_HANDS'], budget=4)
+        _, actual, _ = self.sampling.prepare({'budget': 4, 'cases': saved,
+            'motion_library_version': self.motion.LIBRARY_VERSION})
+        self.assertEqual(actual, saved)
 
     def test_shapes_consume_equal_reserved_profile_budget(self):
         shapes = [{'id': 'current', 'values': {}}, {'id': 'Fit', 'values': {'Fit': 1}}]

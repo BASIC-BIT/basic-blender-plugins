@@ -4,6 +4,8 @@ from .inputs import fingerprint_inputs, main_thread
 from .rig import apply_pose_matrices
 from .shapes import effective_shapes
 from .reporting import validate_report
+from .identities import read_source_ids
+from .fingerprints import FINGERPRINT_FORMAT
 
 _views = {}
 
@@ -16,8 +18,10 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
     scene = bpy.data.scenes.get(report.get('review_scene', ''))
     if scene is None:
         raise ValueError('retained native review scene is missing')
-    sources = [bpy.data.objects.get(name) for name in report['inputs']]
-    if any(o is None for o in sources) or fingerprint_inputs(sources) != report['inputs']:
+    if report.get('fingerprint_format') != FINGERPRINT_FORMAT:
+        raise ValueError('legacy report fingerprints; recapture the baseline and rerun')
+    source_ids = read_source_ids(scene)
+    if fingerprint_inputs(list(source_ids), source_ids) != report['inputs']:
         raise ValueError('stale preview: a source input changed or is missing')
     if not 0 <= result_index < len(report['results']):
         raise ValueError('choose a saved pair finding')

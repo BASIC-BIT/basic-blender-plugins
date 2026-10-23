@@ -53,6 +53,9 @@ def prepare(settings):
     result['families'] = families
     expected = seed_cases(profiles, shapes, 100000000, result['steps'])
     expected = [c for c in expected if c['family'] in families]
+    # Keep the stratified prefix, but leave a quarter of the cap for adaptive search.
+    reserve = result['budget'] // 4 if result['refinement_depth'] else 0
+    result['seed_case_budget'] = min(len(expected), result['budget'] - reserve)
     if 'cases' in result:
         cases = [interpolate_case(c, c['t']) for c in result['cases']]
         if not cases or len(cases) > result['budget'] or len({c['id'] for c in cases}) != len(cases):
@@ -60,7 +63,7 @@ def prepare(settings):
         if any(c['profile'] not in profiles or c['family'] not in families for c in cases):
             raise ValueError('saved cases do not match selected profile/family')
     else:
-        cases = expected[:result['budget']]
+        cases = expected[:result['seed_case_budget']]
     return result, cases, expected
 
 
@@ -84,5 +87,8 @@ def coverage(cases, expected, pending, settings):
             'uncovered_strata': uncovered_strata(cases, expected),
             'coverage_warnings': coverage_warnings(cases),
             'continuous_coverage': False, 'budget': settings['budget'],
+            'seed_case_budget': settings['seed_case_budget'],
+            'refinement_case_capacity': settings['budget'] - settings['seed_case_budget']
+                                        if settings['refinement_depth'] else 0,
             'refinement_depth': settings['refinement_depth'],
             'minimum_time_resolution': 1 / ((settings['steps'] - 1) * 2 ** settings['refinement_depth'])}

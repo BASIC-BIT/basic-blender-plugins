@@ -93,6 +93,7 @@ def main(argv=None):
             ('verify_clothing_checks_blender.py', 'CLOTHING_SESSION_OK', True),
             ('verify_clothing_session_regressions.py', 'CLOTHING_SESSION_REVIEW_OK', True),
             ('verify_clothing_inactive_sources.py', 'CLOTHING_INACTIVE_SOURCE_REOPEN_OK', True),
+            ('verify_clothing_inputs_blender.py', 'CLOTHING_INPUTS_FOLLOWUP_OK', True),
         ):
             arguments = ['--background', '--factory-startup', '--python-exit-code', '9',
                          '--python', SCRIPTS / script]

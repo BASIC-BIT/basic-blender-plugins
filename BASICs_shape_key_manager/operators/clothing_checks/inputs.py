@@ -2,8 +2,8 @@
 import re
 import threading
 import bpy
-from .fingerprints import fingerprint, fingerprint_inputs, evaluate_sources, bone_deformation_state
-from .identities import logical_id, resolve_bindings
+from .fingerprints import fingerprint, fingerprint_inputs, evaluate_sources, bone_deformation_state, FINGERPRINT_FORMAT
+from .identities import logical_id, resolve_bindings, read_source_ids
 
 
 def main_thread():
@@ -20,7 +20,7 @@ def data_blocks(objects):
     return list(dict.fromkeys(blocks))
 
 
-def preflight(body, rig, pairs):
+def preflight(body, rig, pairs, *, capturing=False):
     main_thread()
     if body is None or body.type != 'MESH' or rig is None or rig.type != 'ARMATURE':
         raise ValueError('choose a mesh body and an armature rig')
@@ -137,10 +137,16 @@ def preflight(body, rig, pairs):
     signature = rig_signature(rig)
     if any(rig_signature(target) != signature for target in rig_targets):
         raise ValueError('reference Armature modifier has incompatible rig deformation/rest data; recapture the baseline')
-    baselines = [ref['_basic_clothing_baseline_body'] for ref in references if ref.get('_basic_clothing_baseline_body')]
-    if baselines:
-        body_fingerprint = fingerprint(body)
-        if any(value != body_fingerprint for value in baselines):
+    for ref in references:
+        # Explicit capture creates new evidence, including from frozen legacy inputs.
+        if capturing or not ref.get('_basic_clothing_baseline_body'):
+            continue
+        scene = next((s for s in ref.users_scene if s.get('_basic_clothing_kind') == 'BASELINE' and
+                      s.get('_basic_clothing_owner') == ref.get('_basic_clothing_owner')), None)
+        if scene is None or ref.get('_basic_clothing_fingerprint_format') != FINGERPRINT_FORMAT:
+            raise ValueError('legacy baseline fingerprints; recapture the baseline before validation')
+        # Incremental captures each retain their own identity context.
+        if ref['_basic_clothing_baseline_body'] != fingerprint(body, read_source_ids(scene)):
             raise ValueError('body changed after baseline capture; capture a separate body comparison')
     return normalized, objects
 

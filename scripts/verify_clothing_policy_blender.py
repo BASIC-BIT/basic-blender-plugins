@@ -79,12 +79,13 @@ def utility_group_audit():
     options.pairs.clear()
     options.mapping.clear()
     options.shapes.clear()
-    options.body, options.rig, options.mapping_confirmed = body, rig, True
+    options.body, options.rig = body, rig
     row = options.pairs.add()
     row.reference, row.candidate, row.confirmed = ref, candidate, True
     for canonical, bone in mapping.items():
         row = options.mapping.add()
         row.canonical, row.bone = canonical, bone
+    options.mapping_confirmed = True
     options.utility_groups = json.dumps(settings['utility_groups'])
     authoring = importlib.import_module(PACKAGE + '.operators.clothing_checks.authoring')
     assert authoring.inputs_from_ui(bpy.context)[-1]['utility_groups'] == settings['utility_groups']

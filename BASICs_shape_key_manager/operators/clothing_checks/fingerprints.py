@@ -5,6 +5,21 @@ import json
 import sys
 import bpy
 
+FINGERPRINT_FORMAT = 'BASIC-CLOTHING-BINARY-2'
+
+
+def _block_ids(source_ids):
+    identities = dict(source_ids or {})
+    for obj, identity in (source_ids or {}).items():
+        identities[obj.data] = identity + ':data'
+        if obj.type == 'MESH' and obj.data.shape_keys:
+            identities[obj.data.shape_keys] = identity + ':keys'
+    return identities
+
+
+def _reference(block, identities):
+    return identities.get(block, block.name_full) if block else None
+
 
 def evaluate_sources(objects):
     """Materialize owning graphs without switching windows, selection or frames."""
@@ -33,10 +48,10 @@ def evaluate_sources(objects):
             raise ValueError('source object has no evaluable owning view layer: ' + obj.name)
 
 
-def _properties(block):
+def _properties(block, identities):
     def plain(value):
         if isinstance(value, bpy.types.ID):
-            return {'id': value.name_full, 'type': value.bl_rna.identifier}
+            return {'id': _reference(value, identities), 'type': value.bl_rna.identifier}
         if hasattr(value, 'items'):
             return {str(k): plain(v) for k, v in value.items()}
         if hasattr(value, 'to_list'):
@@ -100,7 +115,7 @@ def action_curves(action):
     return curves
 
 
-def _animation(block):
+def _animation(block, identities):
     animation = block.animation_data
     if not animation:
         return None
@@ -108,7 +123,7 @@ def _animation(block):
     for curve in animation.drivers:
         drivers.append([curve.data_path, curve.array_index, curve.mute, curve.driver.type,
                         curve.driver.expression, curve.driver.use_self, _curve_settings(curve), [[v.name, v.type, [[
-                            t.id.name_full if t.id else None, t.data_path,
+                            _reference(t.id, identities), t.data_path,
                             t.bone_target, t.transform_type, t.transform_space, t.rotation_mode]
                             for t in v.targets]] for v in curve.driver.variables]])
     action, curves = animation.action, []
@@ -133,16 +148,16 @@ def _bulk(digest, label, collection, attribute, width, code='f'):
     _feed(digest, label, values)
 
 
-def _fingerprint(obj):
-    digest = hashlib.sha256(b'BASIC-CLOTHING-BINARY-1\0')
+def _fingerprint(obj, identities):
+    digest = hashlib.sha256(FINGERPRINT_FORMAT.encode() + b'\0')
     values = {'type': obj.type, 'matrix': [list(r) for r in obj.matrix_world],
-              'properties': _properties(obj), 'data_properties': _properties(obj.data),
-              'parent': obj.parent.name_full if obj.parent else None,
+              'properties': _properties(obj, identities), 'data_properties': _properties(obj.data, identities),
+              'parent': _reference(obj.parent, identities),
               'parent_type': obj.parent_type, 'parent_bone': obj.parent_bone,
               'parent_inverse': [list(r) for r in obj.matrix_parent_inverse],
-              'animation': _animation(obj),
+              'animation': _animation(obj, identities),
               'modifiers': [[m.type, m.show_viewport, m.show_render,
-                             m.object.name_full if m.type == 'ARMATURE' and m.object else None,
+                             _reference(m.object, identities) if m.type == 'ARMATURE' else None,
                              m.use_vertex_groups if m.type == 'ARMATURE' else None,
                              m.use_bone_envelopes if m.type == 'ARMATURE' else None,
                              m.use_deform_preserve_volume if m.type == 'ARMATURE' else None,
@@ -170,7 +185,7 @@ def _fingerprint(obj):
                 weights.append(group.weight)
         for label, payload in [('weight_counts', counts), ('weight_groups', groups), ('weights', weights)]:
             _feed(digest, label, payload)
-        values.update(groups=[[g.name, g.lock_weight] for g in obj.vertex_groups], data_animation=_animation(mesh))
+        values.update(groups=[[g.name, g.lock_weight] for g in obj.vertex_groups], data_animation=_animation(mesh, identities))
         if mesh.shape_keys:
             values['shape_display'] = [obj.show_only_shape_key, obj.active_shape_key_index]
             animation = mesh.shape_keys.animation_data
@@ -181,8 +196,8 @@ def _fingerprint(obj):
                                k.relative_key.name, k.vertex_group] for k in mesh.shape_keys.key_blocks]
             for index, key in enumerate(mesh.shape_keys.key_blocks):
                 _bulk(digest, f'shape:{index}', key.data, 'co', 3)
-            values['key_animation'] = _animation(mesh.shape_keys)
-            values['key_properties'] = _properties(mesh.shape_keys)
+            values['key_animation'] = _animation(mesh.shape_keys, identities)
+            values['key_properties'] = _properties(mesh.shape_keys, identities)
             values['relative'] = mesh.shape_keys.use_relative
     if obj.type == 'ARMATURE':
         values['bones'] = bone_deformation_state(obj.data)
@@ -190,18 +205,20 @@ def _fingerprint(obj):
                            p.bbone_curveinz, p.bbone_curveoutz, p.bbone_rollin, p.bbone_rollout,
                            list(p.bbone_scalein), list(p.bbone_scaleout), [c.type for c in p.constraints]]
                           for p in obj.pose.bones]
-        values['data_animation'] = _animation(obj.data)
+        values['data_animation'] = _animation(obj.data, identities)
         values['pose_position'] = obj.data.pose_position
     digest.update(json.dumps(values, sort_keys=True, allow_nan=False).encode())
     return digest.hexdigest()
 
 
-def fingerprint(obj):
+def fingerprint(obj, source_ids=None):
     evaluate_sources([obj])
-    return _fingerprint(obj)
+    return _fingerprint(obj, _block_ids(source_ids))
 
 
-def fingerprint_inputs(objects):
+def fingerprint_inputs(objects, source_ids=None):
     objects = list(dict.fromkeys(objects))
     evaluate_sources(objects)
-    return {obj.name_full: _fingerprint(obj) for obj in objects}
+    identities = _block_ids(source_ids)
+    return {source_ids[obj] if source_ids is not None else obj.name_full: _fingerprint(obj, identities)
+            for obj in objects}
