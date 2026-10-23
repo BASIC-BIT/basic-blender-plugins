@@ -96,6 +96,7 @@ def main(argv=None):
             ('verify_clothing_inputs_blender.py', 'CLOTHING_INPUTS_FOLLOWUP_OK', True),
             ('verify_clothing_review_state.py', 'CLOTHING_REVIEW_STATE_OK', True),
             ('verify_clothing_baseline_boundaries.py', 'CLOTHING_BASELINE_BOUNDARIES_OK', True),
+            ('verify_clothing_review_identity.py', 'CLOTHING_REVIEW_IDENTITY_OK', True),
         ):
             arguments = ['--background', '--factory-startup', '--python-exit-code', '9',
                          '--python', SCRIPTS / script]

@@ -26,6 +26,7 @@ class ValidationSession:
     def __init__(self, context, body, rig, pairs, mapping, settings):
         main_thread()
         self.context, self.scene, self.motion = context, None, None
+        self.source_scene = context.scene
         self.closed, self.retained, self.current = False, False, None
         self.settings, self.queue, self.expected = prepare(settings)
         mapping = resolve_mapping(rig, mapping)
@@ -34,7 +35,7 @@ class ValidationSession:
             raise ValueError('utility groups name an uncaptured garment ID')
         self.source_ids = capture_source_ids(self.sources)
         self.fingerprints = fingerprint_inputs(self.sources, self.source_ids)
-        self.scale = context.scene.unit_settings.scale_length
+        self.scale = self.source_scene.unit_settings.scale_length
         self.depth, self.measurements, self.stable = 0, [], {}
         self.neutral_crossings = {}
         self.owner = uuid.uuid4().hex
@@ -52,6 +53,7 @@ class ValidationSession:
         try:
             self.scene = bpy.data.scenes.new('BASIC Clothing Review ' + self.owner[:8])
             self.scene['_basic_clothing_owner'], self.scene['_basic_clothing_kind'] = self.owner, 'JOB'
+            self.scene['_basic_clothing_source_scene'] = self.source_scene
             retain_source_ids(self.scene, self.source_ids)
             self.scene.unit_settings.scale_length = self.scale
             self.copies = owned_copies(self.scene, self.sources, self.owner)
@@ -98,6 +100,8 @@ class ValidationSession:
                             for target in variable.targets:
                                 if isinstance(target.id, bpy.types.Object) and target.id.type == 'ARMATURE':
                                     target.id = self.rig
+            self.scene['_basic_clothing_report_objects'] = {str(index): {'object': obj, 'key': obj.name}
+                for index, obj in enumerate(self.copies.values())}
             self.shape_current = {o: {k.name: k.value for k in o.data.shape_keys.key_blocks}
                                   for o in self.scene.objects if o.type == 'MESH' and o.data.shape_keys}
             for obj, values in self.shape_current.items():
@@ -260,7 +264,7 @@ class ValidationSession:
             return True
         try:
             if self.current is None and (fingerprint_inputs(self.sources, self.source_ids) != self.fingerprints or
-                    self.context.scene.unit_settings.scale_length != self.scale):
+                    self.source_scene.unit_settings.scale_length != self.scale):
                 self.report['status'] = 'STALE'
                 self.report['errors'].append('Source inputs changed during evaluation')
                 self.close()

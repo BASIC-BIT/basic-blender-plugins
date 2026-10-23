@@ -227,6 +227,11 @@ frozen geometry, select its garments and explicitly capture a new baseline with
 the intended body and rig. Capture preserves the old scene and evidence; reading
 an old baseline never adds or repairs its accepted integrity state.
 
+Selecting only part of a captured outfit retains that capture's complete frozen
+dependency closure. Unselected garments remain hidden dependencies when a chosen
+reference uses them as a parent or key-driver source. External dependencies
+outside the captured closure still reject.
+
 Retained review copies are checked before preview changes any pose, shape value
 or display state. Manual changes to their transforms, rest data, weights, shape
 geometry/values, modifiers, rig deformation settings, frame or unit scale stop
@@ -237,6 +242,24 @@ repeated preview and saved-file reopen use that state. Older retained reports
 without review-integrity metadata require another validation run. Source
 fingerprint format v2 remains unchanged. Baselines without immutable integrity
 metadata require the explicit independent recapture described above.
+
+Saved previews bind the original source Scene and compare its unit scale before
+changing the retained review. Changing that scale or deleting the source Scene
+requires another run; the current preview window's Scene is not a substitute.
+Native bindings keep each clone's captured report key stable after object/data
+renames, including shape replay and face selection. Review Scene lookup uses its
+unique owned report ID, so Scene renames remain supported. Older reviews missing
+source-Scene or per-clone report bindings require another validation run.
+Owned review integrity v2 seals those per-clone bindings and requires a one-to-one
+table; swapped or aliased metadata rejects before preview writes.
+
+Action display names are excluded from fingerprints, including inactive native
+Action copies retained by capture. Action curves, per-slot channels, selected
+slot, assignment settings and frame settings remain semantic inputs. Their
+payload is versioned `BASIC-CLOTHING-ACTION-1`; prior Action-bearing captures need
+an independent recapture and prior reports need another run. No-Action hashes and
+the source fingerprint format v2 remain unchanged. Copied Actions remain native
+editable evidence; validation continues using their captured numeric snapshot.
 
 Editing either Before/After mesh clears that pair's confirmation. Changing the
 selected rig or a mapping field clears mapping confirmation; its saved signature

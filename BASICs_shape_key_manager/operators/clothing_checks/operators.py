@@ -10,6 +10,7 @@ from .session import ValidationSession
 from .preview import preview_failure, clear_preview, clear_all_previews
 from .inputs import remove_scene
 from .reporting import persist
+from .identities import retained_review_scene
 
 _jobs = {}
 
@@ -45,8 +46,9 @@ class BASIC_OT_run_clothing_checks(bpy.types.Operator):
         settings = self._source_scene.clothing_checks
         settings.report_text = report['text']
         settings.status = report['status']
-        if report.get('review_scene') in bpy.data.scenes:
-            bpy.data.scenes[report['review_scene']].clothing_checks.report_text = report['text']
+        scene = retained_review_scene(report, required=False)
+        if scene:
+            scene.clothing_checks.report_text = report['text']
         _jobs.pop(self.as_pointer(), None)
         if self.calibration and report['status'] == 'COMPLETED':
             preview_failure(context, report)
@@ -154,7 +156,7 @@ class BASIC_OT_remove_clothing_review(bpy.types.Operator):
         try:
             report = read_report(context.scene.clothing_checks)
             clear_preview(context)
-            scene = bpy.data.scenes.get(report.get('review_scene', ''))
+            scene = retained_review_scene(report, required=False)
             if scene:
                 if context.window.scene == scene:
                     raise ValueError('return to a source scene before removing the review')

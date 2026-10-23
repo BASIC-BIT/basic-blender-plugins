@@ -18,6 +18,8 @@ def _block_ids(source_ids):
 
 
 def _reference(block, identities):
+    if block is not None and isinstance(block, bpy.types.Action):
+        return _action_state(block)
     return identities.get(block, block.name_full) if block else None
 
 
@@ -115,6 +117,26 @@ def action_curves(action):
     return curves
 
 
+def _curve_state(curve):
+    return [curve.data_path, curve.array_index, curve.extrapolation, _curve_settings(curve),
+            [[list(k.co), list(k.handle_left), list(k.handle_right), k.interpolation]
+             for k in curve.keyframe_points]]
+
+
+def _action_state(action):
+    """Semantic Action payload v1, independent of creator labels and native handles."""
+    slots = list(getattr(action, 'slots', ()))
+    layers = getattr(action, 'layers', ())
+    return {'format': 'BASIC-CLOTHING-ACTION-1',
+            'settings': [getattr(action, name, None) for name in
+                         ('use_frame_range', 'frame_start', 'frame_end', 'use_cyclic')],
+            'slot_types': [slot.target_id_type for slot in slots],
+            'layers': [[[[_curve_state(curve) for curve in bag.fcurves] if
+                         (bag := strip.channelbag(slot)) else [] for slot in slots]
+                        for strip in layer.strips] for layer in layers],
+            'legacy_curves': [] if layers else [_curve_state(curve) for curve in action_curves(action)]}
+
+
 def _animation(block, identities):
     animation = block.animation_data
     if not animation:
@@ -126,12 +148,14 @@ def _animation(block, identities):
                             _reference(t.id, identities), t.data_path,
                             t.bone_target, t.transform_type, t.transform_space, t.rotation_mode]
                             for t in v.targets]] for v in curve.driver.variables]])
-    action, curves = animation.action, []
+    action, state = animation.action, None
     if action:
-        curves = [[c.data_path, c.array_index, c.extrapolation, _curve_settings(c),
-                   [[list(k.co), list(k.handle_left), list(k.handle_right),
-                     k.interpolation] for k in c.keyframe_points]] for c in action_curves(action)]
-    return [action.name if action else None, curves, drivers]
+        state = _action_state(action)
+        slots, slot = list(getattr(action, 'slots', ())), getattr(animation, 'action_slot', None)
+        state['assignment'] = [slots.index(slot) if slot in slots else None] + [
+            getattr(animation, name, None) for name in
+            ('action_blend_type', 'action_extrapolation', 'action_influence', 'use_nla')]
+    return [state, [], drivers]
 
 
 def _feed(digest, label, values):

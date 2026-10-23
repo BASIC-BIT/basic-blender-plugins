@@ -149,14 +149,14 @@ def preflight(body, rig, pairs, *, capturing=False, posed_bones=None):
             baseline_scenes[ref] = scene
     objects = list(dict.fromkeys([body, rig, *[o for row in normalized for o in row[:2]]]))
     baseline_dependencies = set()
-    # A captured key driver may depend on the independently frozen body/rig.
+    # Retain the complete integrity-checked capture, including unselected garments.
     for ref in references:
         owner = ref.get('_basic_clothing_owner')
         if owner:
             for scene in ref.users_scene:
                 if scene.get('_basic_clothing_kind') == 'BASELINE' and scene.get('_basic_clothing_owner') == owner:
                     for dependency in scene.objects:
-                        if dependency.get('_basic_clothing_role') in {'BODY', 'RIG'} and dependency not in objects:
+                        if dependency not in objects:
                             objects.append(dependency)
                             baseline_dependencies.add(dependency)
     rig_targets = set()

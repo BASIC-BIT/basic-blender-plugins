@@ -4,7 +4,7 @@ from .inputs import fingerprint_inputs, main_thread
 from .rig import apply_pose_matrices
 from .shapes import effective_shapes
 from .reporting import validate_report
-from .identities import read_source_ids
+from .identities import read_source_ids, retained_review_scene, resolve_review_objects
 from .fingerprints import FINGERPRINT_FORMAT
 from .review_state import validate_review_state, accept_review_state
 
@@ -16,11 +16,14 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
     if side not in {'REFERENCE', 'CANDIDATE'}:
         raise ValueError('preview side must be REFERENCE or CANDIDATE')
     validate_report(report)
-    scene = bpy.data.scenes.get(report.get('review_scene', ''))
-    if scene is None:
-        raise ValueError('retained native review scene is missing')
+    scene = retained_review_scene(report)
     if report.get('fingerprint_format') != FINGERPRINT_FORMAT:
         raise ValueError('legacy report fingerprints; recapture the baseline and rerun')
+    source_scene = scene.get('_basic_clothing_source_scene')
+    if not isinstance(source_scene, bpy.types.Scene):
+        raise ValueError('captured source scene binding is missing; rerun clothing checks')
+    if source_scene.unit_settings.scale_length != report.get('unit_scale'):
+        raise ValueError('stale preview: source scene scale changed; rerun clothing checks')
     source_ids = read_source_ids(scene)
     if fingerprint_inputs(list(source_ids), source_ids) != report['inputs']:
         raise ValueError('stale preview: a source input changed or is missing')
@@ -29,6 +32,10 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
     if context.mode != 'OBJECT':
         raise ValueError('leave native Edit/Pose mode before preview')
     validate_review_state(scene)
+    report_keys = resolve_review_objects(scene, report)
+    window = context.window
+    if window is None:
+        raise ValueError('a native window is required for review preview')
     result = report['results'][result_index]
     pose = report['poses'][result['pose_index']]
     rig = next(o for o in scene.objects if o.get('_basic_clothing_role') == 'RIG')
@@ -39,7 +46,7 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
                      view_layer=scene.view_layers[0])
         if obj.type != 'MESH':
             continue
-        info = report['objects'].get(obj.name, {})
+        info = report['objects'][report_keys[obj]]
         if obj.data.shape_keys:
             current = info.get('shape_current', {})
             values = pose['case']['shape_values'].get(info.get('id'), {})
@@ -52,9 +59,6 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
             polygon.select = polygon.index in faces
         obj.show_wire = bool(faces)
         obj.show_all_edges = bool(faces)
-    window = context.window
-    if window is None:
-        raise ValueError('a native window is required for review preview')
     token = window.as_pointer()
     if token not in _views:
         _views[token] = (window.scene, window.view_layer, context.view_layer.objects.active,
@@ -71,6 +75,7 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
         window.view_layer.objects.active = candidates[0]
     scene.view_layers[0].update()
     effective = effective_shapes(context, scene, scene.objects)
+    effective = {key: effective.get(obj.name, {}) for obj, key in report_keys.items()}
     for name, keys in pose.get('effective_shape_values', {}).items():
         if any(abs(effective.get(name, {}).get(key, float('inf')) - value) > 1e-6 for key, value in keys.items()):
             clear_preview(context)

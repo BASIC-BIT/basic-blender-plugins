@@ -18,6 +18,30 @@ def read_source_ids(scene):
     return {obj: identity for identity, obj in captured.items()}
 
 
+def retained_review_scene(report, *, required=True):
+    matches = [scene for scene in bpy.data.scenes if report.get('id') and
+               scene.get('_basic_clothing_owner') == report['id'] and
+               scene.get('_basic_clothing_kind') == 'REVIEW']
+    if len(matches) > 1 or required and not matches:
+        raise ValueError('retained native review scene is missing or ownership is ambiguous')
+    return matches[0] if matches else None
+
+
+def resolve_review_objects(scene, report=None):
+    """Captured report keys bind distinct native clones across rename and reopen."""
+    captured = scene.get('_basic_clothing_report_objects')
+    rows = list(captured.values()) if hasattr(captured, 'values') else []
+    if (not rows or len(rows) != len(scene.objects) or any(not hasattr(row, 'get') for row in rows) or
+            any(not isinstance(row.get('key'), str) or not row['key'] for row in rows) or
+            len({row['key'] for row in rows}) != len(rows) or
+            any(row.get('object') is None for row in rows) or
+            {row['object'] for row in rows} != set(scene.objects)):
+        raise ValueError('retained review object bindings are missing; rerun clothing checks')
+    if report is not None and {row['key'] for row in rows} != set(report['objects']):
+        raise ValueError('retained review object bindings disagree with this report; rerun clothing checks')
+    return {row['object']: row['key'] for row in rows}
+
+
 def logical_id(obj):
     return str(obj.get('_basic_clothing_id') or f'object:{obj.session_uid}')
 

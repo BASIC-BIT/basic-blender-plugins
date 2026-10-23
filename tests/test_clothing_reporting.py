@@ -93,6 +93,8 @@ class ClothingReportingTests(unittest.TestCase):
                     modifiers=[], constraints=[], animation_data=SimpleNamespace(action=action, drivers=[]))
         with patch.object(fingerprints, 'evaluate_sources'):
             before = fingerprints.fingerprint(obj)
+            action.name = 'Creator renamed legacy Action'
+            self.assertEqual(fingerprints.fingerprint(obj), before)
             key.co[1] = .5
             self.assertNotEqual(fingerprints.fingerprint(obj), before)
             key.co[1] = 0.

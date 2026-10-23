@@ -1,9 +1,9 @@
 """Accepted owned-copy state, separate from immutable source/report evidence."""
 import json
 from .fingerprints import fingerprint_inputs
-from .identities import capture_source_ids
+from .identities import capture_source_ids, resolve_review_objects
 
-FORMAT = 'BASIC-CLOTHING-REVIEW-1'
+FORMAT = 'BASIC-CLOTHING-REVIEW-2'
 ERROR = 'modified retained review scene; preserve your edits and rerun clothing checks'
 
 
@@ -22,6 +22,7 @@ def _state(scene, identities):
         raise ValueError(ERROR)
     return {'format': FORMAT, 'frame': [scene.frame_current, scene.frame_subframe],
             'unit_scale': scene.unit_settings.scale_length,
+            'report_objects': {key: identities[obj] for obj, key in resolve_review_objects(scene).items()},
             'objects': fingerprint_inputs(list(identities), identities, review=True)}
 
 
