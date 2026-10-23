@@ -118,6 +118,8 @@ class SHAPEKEY_PT_manager(Panel):
             # Weight transfer works even when the target has no vertex groups yet
             row = col.row()
             row.operator("vertexgroup.robust_weight_transfer")
+            row = col.row()
+            row.operator("vertexgroup.refit_clothing_weights")
 
             if hasattr(context.scene, "weight_transfer_keep_existing_prefixes"):
                 row = col.row()

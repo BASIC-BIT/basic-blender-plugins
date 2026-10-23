@@ -9,7 +9,7 @@ type = "add-on"
 
 website = "https://github.com/BASICBIT/BASICs_shape_key_manager"
 
-tags = ["Mesh", "Modeling", "Shape Keys"]
+tags = ["Mesh", "Modeling"]
 
 blender_version_min = "4.3.0"
 

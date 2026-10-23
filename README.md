@@ -178,3 +178,13 @@ Created by BASICBIT
 - Make the mirroring vertex functionality move the vertexes to the average center point instead of moving one to the other's mirrored position
 - Fix release script
 - Confirm functionality of mirroring code (both original blendshape mirroring and new vertex mirroring)
+## Clothing validation and refitting
+
+The BASIC sidebar includes **Refit Clothing Weights** for an explicit staged
+body-to-clothing transfer. Locked deform-bone influence shares and utility groups
+are preserved. See [refit behavior](docs/weight_refit.md).
+
+**BASIC > Developer > Clothing Pose Checks** captures an immutable baseline,
+checks paired meshes in synthetic poses and provides saved-pose previews.
+See [clothing checks](docs/clothing_pose_checks.md) and [testing](docs/testing.md).
+Finite Blender samples do not establish Unity or VRChat runtime coverage.
