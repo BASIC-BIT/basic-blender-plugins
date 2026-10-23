@@ -68,7 +68,7 @@ def refinements(measurements, depth, settings):
     if depth >= settings['refinement_depth']:
         return []
     maximum = len(measurements) * 10
-    candidates = refinement_candidates(measurements, maximum)
+    candidates = refinement_candidates(measurements, maximum, clearance_m=settings['clearance_m'])
     minimum = 1 / ((settings['steps'] - 1) * 2 ** settings['refinement_depth'])
     return [c for c in candidates if all(
         abs(c['t'] - m['case']['t']) >= minimum - 1e-8

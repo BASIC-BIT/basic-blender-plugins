@@ -64,9 +64,13 @@ def weight_report(reference, candidate, rig, utility_groups=()):
         names = {g.index: g.name for g in obj.vertex_groups}
         return [{names[g.group]: g.weight for g in v.groups
                  if names[g.group] not in nondeform | utility} for v in obj.data.vertices]
-    report = audit_weights(rows(candidate), deform,
-                         {g.name for g in candidate.vertex_groups if g.lock_weight and g.name in deform},
-                         rows(reference), cap=4)
+    locked_before = {g.name for g in reference.vertex_groups if g.lock_weight and g.name in deform}
+    locked_after = {g.name for g in candidate.vertex_groups if g.lock_weight and g.name in deform}
+    report = audit_weights(rows(candidate), deform, locked_before | locked_after, rows(reference), cap=4)
+    report['lock_state_changes'] = [{'name': name, 'reference_locked': name in locked_before,
+                                    'candidate_locked': name in locked_after}
+                                   for name in sorted(locked_before ^ locked_after)]
+    report['valid'] &= not report['lock_state_changes']
     report['excluded_utility_groups'] = sorted(utility)
     return report
 
@@ -104,6 +108,19 @@ def summarize(report):
     report['summary'] = summary
 
 
+def report_digest(report):
+    payload = {key: value for key, value in report.items() if key != 'report_hash'}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':'),
+                                    allow_nan=False).encode()).hexdigest()
+
+
+def validate_report(report):
+    if (not isinstance(report, dict) or not isinstance(report.get('report_hash'), str)
+            or report['report_hash'] != report_digest(report)):
+        raise ValueError('report integrity mismatch or missing hash; rerun clothing checks')
+    return report
+
+
 def persist(report, scene):
     if scene:
         report['review_scene'] = scene.name
@@ -113,15 +130,10 @@ def persist(report, scene):
     try:
         text.use_fake_user = True
         report['text'] = text.name
-        report['report_hash'] = hashlib.sha256(json.dumps(report, sort_keys=True,
-            separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        report['report_hash'] = report_digest(report)
         text.write(json.dumps(report, sort_keys=True, indent=2, allow_nan=False))
         saved = json.loads(text.as_string())
-        expected = saved.pop('report_hash')
-        actual = hashlib.sha256(json.dumps(saved, sort_keys=True, separators=(',', ':'),
-                                          allow_nan=False).encode()).hexdigest()
-        if expected != actual:
-            raise ValueError('retained report readback hash mismatch')
+        validate_report(saved)
         if scene:
             scene['basic_clothing_report'] = text.name
         return text

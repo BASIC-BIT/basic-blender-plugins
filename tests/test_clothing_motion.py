@@ -57,6 +57,18 @@ class MotionTests(unittest.TestCase):
         self.assertEqual(refined, self.motion.refinement_candidates(list(reversed(measurements)), 1))
         self.assertEqual(self.motion.refinement_candidates(measurements, 0), [])
 
+    def test_refinement_uses_the_configured_clearance_warning(self):
+        base = self.motion.seed_cases(['HEAD_HANDS'])[0]
+        samples = [{'case': self.motion.interpolate_case(base, t), 'clearance_m': .005, 'collision': False}
+                   for t in (0., 1.)]
+        self.assertEqual(self.motion.refinement_candidates(samples, 2), [])
+        self.assertEqual([c['t'] for c in self.motion.refinement_candidates(samples, 2, clearance_m=.01)], [.5])
+        self.assertEqual(self.motion.refinement_candidates(samples, 2, clearance_m=.005), [])
+        self.assertEqual(self.motion.refinement_candidates(samples, 2, clearance_m=0.), [])
+        for threshold in (-1., float('nan'), True):
+            with self.assertRaises(ValueError):
+                self.motion.refinement_candidates(samples, 2, clearance_m=threshold)
+
     def test_motion_commands_bounded_mirrored_and_coupled(self):
         for case in self.motion.seed_cases(['FULL_BODY']):
             command = self.motion.motion_commands(case)

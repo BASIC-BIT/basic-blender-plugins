@@ -293,10 +293,12 @@ def coverage_warnings(cases):
             for motion in ('heel_roll', 'toe_roll') if any(c['motion'] == motion for c in cases)]
 
 
-def refinement_candidates(measurements, remaining):
+def refinement_candidates(measurements, remaining, clearance_m=.001):
     """Bisect related sampled intervals near changes, clearance or displacement."""
     if not isinstance(remaining, int) or isinstance(remaining, bool) or remaining < 0:
         raise ValueError('remaining must be a nonnegative integer')
+    if _number(clearance_m, 'clearance_m') < 0:
+        raise ValueError('clearance_m must be nonnegative')
     groups, seen = {}, set()
     ordered_measurements = sorted(measurements, key=lambda item: interpolate_case(item['case'], item['case']['t'])['id'])
     for item in ordered_measurements:
@@ -313,7 +315,7 @@ def refinement_candidates(measurements, remaining):
             if b[0] - a[0] < 1e-6:
                 continue
             changes = a[1].get('collision') != b[1].get('collision')
-            near = min(a[1].get('clearance_m', float('inf')), b[1].get('clearance_m', float('inf'))) < .001
+            near = min(a[1].get('clearance_m', float('inf')), b[1].get('clearance_m', float('inf'))) < clearance_m
             displacement = max(a[1].get('displacement_m', 0), b[1].get('displacement_m', 0)) > .02
             if changes or near or displacement:
                 case = interpolate_case(a[2], (a[0] + b[0]) / 2)

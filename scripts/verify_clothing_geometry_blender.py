@@ -80,6 +80,24 @@ def test_body_and_garment_self_crossings_share_contact_band():
             raise AssertionError('invalid body contact band accepted')
 
 
+def test_native_bvh_rejects_disjoint_straddling_triangles():
+    a_points = [(0, 0, 0), (2, 0, 0), (0, 2, 0)]
+    a = snapshot(mesh('ExactBvhA', a_points, [(0, 1, 2)]))
+    for label, points, expected in (
+            ('disjoint', [(2, -1, -1), (2, -1, 1), (-1, 2, 4)], False),
+            ('crossing', [(.5, .5, -1), (.5, .5, 1), (1.5, .5, 0)], True)):
+        b = snapshot(mesh('ExactBvhB' + label, points, [(0, 1, 2)]))
+        assert all(a['bounds'][0][i] <= b['bounds'][1][i] and b['bounds'][0][i] <= a['bounds'][1][i]
+                   for i in range(3)), 'fixture must overlap AABBs'
+        assert queries.crossing(a, 0, b, 0, 1e-8), 'fixture must straddle both triangle planes'
+        assert bool(a['bvh'].overlap(b['bvh'])) == expected, label
+        pair = geometry.analyze_pair(a, b)
+        assert bool(pair['triangle_pairs']) == expected and bool(any(pair['crossing_faces'].values())) == expected
+        joined = snapshot(mesh('ExactBvhSelf' + label, a_points + points, [(0, 1, 2), (3, 4, 5)]))
+        assert geometry.analyze_self(joined)['absolute_fit'] == ('CLIPPING' if expected else 'CLEAR')
+        assert geometry.body_self_crossings(joined) == ({(0, 1)} if expected else set())
+
+
 def test_buried_reversed_open_and_density():
     outer, inner = snapshot(cube('outer')), snapshot(cube('inner', .2))
     result = geometry.analyze_pair(outer, inner)
@@ -284,6 +302,7 @@ def benchmark_outfit(manifest_path):
 
 
 for test in (test_outside_vertices_crossing_and_contact, test_body_and_garment_self_crossings_share_contact_band,
+             test_native_bvh_rejects_disjoint_straddling_triangles,
              test_buried_reversed_open_and_density,
              test_fixed_quad_triangles_and_reordered_topology,
              test_self_intersection_and_bad_orientation, test_near_edge_ray_ambiguity,

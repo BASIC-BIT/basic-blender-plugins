@@ -63,6 +63,7 @@ def utility_group_audit():
     for obj in (ref, candidate):
         obj.vertex_groups.remove(obj.vertex_groups['hip_typo'])
     candidate.vertex_groups['hips'].lock_weight = True
+    ref.vertex_groups['hips'].lock_weight = True
     identity = session.logical_id(candidate)
     settings['utility_groups'] = {identity: ['Mask', 'Pin']}
     report = session.run_validation(bpy.context, body, rig, pairs, mapping, settings)
@@ -90,6 +91,7 @@ def utility_group_audit():
     options.utility_groups, options.replay, options.report_text = '{}', True, report['text']
     assert authoring.inputs_from_ui(bpy.context)[-1]['utility_groups'] == settings['utility_groups']
     legacy = dict(report, settings={key: value for key, value in report['settings'].items() if key != 'utility_groups'})
+    legacy['report_hash'] = reporting.report_digest(legacy)
     legacy_text = bpy.data.texts.new('Legacy utility settings fixture')
     legacy_text.write(json.dumps(legacy))
     options.report_text, options.utility_groups = legacy_text.name, json.dumps(settings['utility_groups'])
@@ -117,6 +119,36 @@ def cross_role_pair_reuse():
     # Baseline capture intentionally uses one object's self-pair, not cross-pair reuse.
     captured = fixture.baseline.capture_baseline(bpy.context, body, rig, [candidate])
     assert captured['pairs']
+
+
+def immutable_protected_weights():
+    body, rig, pairs, _, _ = fixture.setup('ImmutableLocks')
+    ref, candidate = pairs[0]['reference'], pairs[0]['candidate']
+    reporting = importlib.import_module(PACKAGE + '.operators.clothing_checks.reporting')
+    for obj in (ref, candidate):
+        obj.vertex_groups['hips'].add([0, 1, 2], .5, 'REPLACE')
+        obj.vertex_groups.new(name='spine').add([0, 1, 2], .5, 'REPLACE')
+    ref.vertex_groups['hips'].lock_weight = True
+    candidate.vertex_groups['hips'].add([0, 1, 2], .25, 'REPLACE')
+    candidate.vertex_groups['spine'].add([0, 1, 2], .75, 'REPLACE')
+    audit = reporting.weight_report(ref, candidate, rig)
+    assert audit['protected_changes'] and not audit['valid'], 'unlocking bypassed baseline protected shares'
+    assert audit['lock_state_changes'] == [{'name': 'hips', 'reference_locked': True, 'candidate_locked': False}]
+    candidate.vertex_groups.remove(candidate.vertex_groups['hips'])
+    audit = reporting.weight_report(ref, candidate, rig)
+    assert audit['protected_changes'] and all(row['candidate_share'] == 0 for row in audit['protected_changes'])
+    candidate.vertex_groups.new(name='hips').add([0, 1, 2], .5, 'REPLACE')
+    candidate.vertex_groups['spine'].add([0, 1, 2], .5, 'REPLACE')
+    audit = reporting.weight_report(ref, candidate, rig)
+    assert not audit['protected_changes'] and not audit['valid'], 'lock-state-only change was ignored'
+    candidate.vertex_groups['hips'].lock_weight = True
+    rig.data.bones['left_hand'].use_deform = False
+    for obj in (ref, candidate):
+        for name in ('Mask', 'left_hand'):
+            obj.vertex_groups.new(name=name).add([0, 1, 2], .8, 'REPLACE')
+    ref.vertex_groups['Mask'].lock_weight = ref.vertex_groups['left_hand'].lock_weight = True
+    audit = reporting.weight_report(ref, candidate, rig, utility_groups=['Mask'])
+    assert audit['valid'] and not audit['lock_state_changes'] and not audit['protected_changes'], audit
 
 
 def session_body_contact_band():
@@ -364,7 +396,7 @@ print('CLOTHING_POLICY_FRESH_REOPEN_OK')'''
     print('CLOTHING_POLICY_SESSION_OK')
 
 
-for test in (cross_role_pair_reuse, utility_group_audit, session_body_contact_band,
+for test in (immutable_protected_weights, cross_role_pair_reuse, utility_group_audit, session_body_contact_band,
              uncontrolled_neutral_baseline, nested_containment_ownership,
              bulk_equivalence, self_and_regions, session_policy):
     test()

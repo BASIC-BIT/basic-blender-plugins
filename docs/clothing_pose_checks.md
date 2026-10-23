@@ -51,8 +51,14 @@ cases. Additional shape variants consume that same budget. Reports identify
 omitted cases and coverage strata. Refinement subdivides intervals near clipping, low clearance or
 representative geometry displacement. Its finite depth and truncated intervals
 are recorded. It does not prove collision freedom between samples.
+The configured clearance warning threshold also selects near-clearance intervals
+for refinement. An interval exactly at the threshold does not trigger that warning.
 
 ## Read the report and preview a correction
+
+Retained reports carry a hash of their complete JSON payload. Preview, replay,
+removal and export reject an edited or unhashed report. Rerun validation after
+changing inputs instead of editing the retained report Text.
 
 The report separates regression, absolute fit and coverage. New, existing,
 resolved and worsened regions use stable object pairs and source polygon IDs.
@@ -60,6 +66,9 @@ Every garment is checked against the body, every other selected garment and
 itself. Self checks omit adjacent triangles that share vertices.
 Weight audits separately record normalization, missing bones, four-influence
 violations and changes to locked deform groups. Audits never repair weights.
+Protected deform shares use the union of baseline and candidate locks. Unlocking
+or removing a previously locked group cannot bypass the baseline comparison;
+lock-state changes are listed separately and keep the audit invalid.
 Declare utility masks explicitly in **Utility groups JSON**, for example
 `{"captured-garment-id":["Mask","Pin"]}`. Use IDs from baseline/report bindings
 and exact group names. Declared existing non-bone groups are excluded from the

@@ -18,6 +18,15 @@ with patch.dict(sys.modules, {'fixture.core.clothing_motion': motion}):
 
 
 class IndependentMotionTests(unittest.TestCase):
+    def test_session_refinement_passes_its_clearance_threshold(self):
+        base = motion.seed_cases(['HEAD_HANDS'])[0]
+        measurements = [{'case': motion.interpolate_case(base, t), 'clearance_m': .005, 'collision': False}
+                        for t in (0., 1.)]
+        settings, _, _ = sampling.prepare({'clearance_m': .01})
+        self.assertEqual([case['t'] for case in sampling.refinements(measurements, 0, settings)], [.5])
+        settings['clearance_m'] = .001
+        self.assertEqual(sampling.refinements(measurements, 0, settings), [])
+
     def test_utility_group_declarations_require_exact_object_and_group_names(self):
         for value in (None, [], {'': ['Mask']}, {'shirt': 'Mask'}, {'shirt': [1]}, {'shirt': ['']}):
             with self.subTest(value=value), self.assertRaises(ValueError):

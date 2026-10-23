@@ -44,6 +44,38 @@ def reject(call, token):
         raise AssertionError('expected rejection: ' + token)
 
 
+def verify_retained_report_integrity(report):
+    authoring = importlib.import_module(PACKAGE + '.operators.clothing_checks.authoring')
+    options = bpy.context.scene.clothing_checks
+    options.report_text, options.mapping_confirmed, options.replay = report['text'], True, True
+    text = bpy.data.texts[report['text']]
+    original = text.as_string()
+    assert authoring.read_report(options) == report
+    edited = json.loads(original)
+    edited['settings']['clearance_m'] = .1
+    text.clear()
+    text.write(json.dumps(edited))
+    scenes, source = set(bpy.data.scenes), bpy.context.scene
+    try:
+        reject(lambda: authoring.read_report(options), 'integrity')
+        preview = importlib.import_module(PACKAGE + '.operators.clothing_checks.preview')
+        reject(lambda: preview.preview_failure(bpy.context, edited), 'integrity')
+        reject(lambda: authoring.inputs_from_ui(bpy.context), 'integrity')
+        reject(lambda: bpy.ops.basic.preview_clothing_failure(), 'integrity')
+        reject(lambda: bpy.ops.basic.remove_clothing_review(), 'integrity')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'must-not-export.json'
+            reject(lambda: bpy.ops.basic.export_clothing_report(filepath=str(path)), 'integrity')
+            assert not path.exists()
+        assert set(bpy.data.scenes) == scenes and bpy.context.scene == source and text.name in bpy.data.texts
+    finally:
+        text.clear()
+        text.write(original)
+        options.replay = False
+    assert authoring.read_report(options) == report
+    print('REPORT_INTEGRITY_REJECTIONS_OK')
+
+
 def run():
     addon = importlib.import_module(PACKAGE)
     if not hasattr(bpy.types.Scene, 'clothing_checks'):
@@ -161,6 +193,7 @@ def run():
     assert report['summary']['absolute_unique_faces'] > 0
     assert report['summary']['absolute_crossing_faces'] > 0
     assert report['coverage']['continuous_coverage'] is False
+    verify_retained_report_integrity(report)
     assert report['review_scene'] in bpy.data.scenes
     assert json.loads(json.dumps(report)) == report
     assert session.fingerprint_inputs([body, rig, a, b]) == before
@@ -177,6 +210,8 @@ def run():
     assert not existing['new'] and existing['existing']
     assert existing['absolute_fit'] == 'CLIPPING'
     preview_report = dict(report, results=[existing])
+    reporting = importlib.import_module(PACKAGE + '.operators.clothing_checks.reporting')
+    preview_report['report_hash'] = reporting.report_digest(preview_report)
     preview_failure(bpy.context, preview_report, 0, 'CANDIDATE')
     assert bpy.context.window.scene.name == report['review_scene']
     assert any(p.select for o in bpy.context.selected_objects for p in o.data.polygons)

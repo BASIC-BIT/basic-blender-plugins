@@ -3,6 +3,7 @@ import bpy
 from .inputs import fingerprint_inputs, main_thread
 from .rig import apply_pose_matrices
 from .shapes import effective_shapes
+from .reporting import validate_report
 
 _views = {}
 
@@ -11,6 +12,7 @@ def preview_failure(context, report, result_index=0, side='CANDIDATE'):
     main_thread()
     if side not in {'REFERENCE', 'CANDIDATE'}:
         raise ValueError('preview side must be REFERENCE or CANDIDATE')
+    validate_report(report)
     scene = bpy.data.scenes.get(report.get('review_scene', ''))
     if scene is None:
         raise ValueError('retained native review scene is missing')

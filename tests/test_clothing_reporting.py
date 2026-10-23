@@ -36,6 +36,19 @@ def result(clipping):
 
 
 class ClothingReportingTests(unittest.TestCase):
+    def test_report_integrity_detects_edits_and_ignores_its_previous_hash(self):
+        report = {'id': 'fixture', 'settings': {'clearance_m': .001}}
+        with self.assertRaises(ValueError):
+            reporting.validate_report(report)
+        report['report_hash'] = reporting.report_digest(report)
+        self.assertIs(reporting.validate_report(report), report)
+        self.assertEqual(reporting.report_digest(dict(report, report_hash='old')), report['report_hash'])
+        report['settings']['clearance_m'] = .1
+        with self.assertRaises(ValueError):
+            reporting.validate_report(report)
+        with self.assertRaises(ValueError):
+            reporting.validate_report([])
+
     def test_legacy_action_keyframe_edits_change_the_public_source_fingerprint(self):
         class Block(SimpleNamespace):
             def items(self):

@@ -151,6 +151,7 @@ def analyze_pair(a, b, contact_m=0.0001, clearance_m=0.001, sample_limit=512,
     triangle_pairs, contacts, ambiguity, contained_pairs = [], [], [], set()
     separated = any(a['bounds'][1][i] < b['bounds'][0][i]
                     or b['bounds'][1][i] < a['bounds'][0][i] for i in range(3))
+    # Native BVH overlap tests finite triangles; crossing then removes contact within the band.
     overlaps = [] if separated else a['bvh'].overlap(b['bvh'])
     for ia, ib in sorted(set(overlaps)):
         if crossing(a, ia, b, ib, contact_m):
