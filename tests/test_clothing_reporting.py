@@ -84,7 +84,8 @@ class ClothingReportingTests(unittest.TestCase):
         key = SimpleNamespace(co=[1., 0.], handle_left=[.5, 0.], handle_right=[1.5, 0.],
                               interpolation='BEZIER')
         curve = SimpleNamespace(data_path='location', array_index=0, extrapolation='CONSTANT',
-                                keyframe_points=[key], modifiers=[], bl_rna=SimpleNamespace(properties=[]))
+                                keyframe_points=[key], modifiers=[], bl_rna=SimpleNamespace(properties=[]),
+                                group=SimpleNamespace(name='Legacy group', mute=False))
         # Blender 4.3 actions expose fcurves without layered-action attributes.
         action = SimpleNamespace(name='Legacy', fcurves=[curve])
         matrix = [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.], [0., 0., 0., 1.]]
@@ -94,7 +95,11 @@ class ClothingReportingTests(unittest.TestCase):
         with patch.object(fingerprints, 'evaluate_sources'):
             before = fingerprints.fingerprint(obj)
             action.name = 'Creator renamed legacy Action'
+            curve.group.name = 'Creator renamed legacy group'
             self.assertEqual(fingerprints.fingerprint(obj), before)
+            curve.group.mute = True
+            self.assertNotEqual(fingerprints.fingerprint(obj), before)
+            curve.group.mute = False
             key.co[1] = .5
             self.assertNotEqual(fingerprints.fingerprint(obj), before)
             key.co[1] = 0.
@@ -106,6 +111,30 @@ class ClothingReportingTests(unittest.TestCase):
         for action in (SimpleNamespace(fcurves=[curve]),
                        SimpleNamespace(fcurves=[curve], layers=[], slots=[])):
             self.assertEqual(fingerprints.action_curves(action), [curve])
+
+    def test_available_layer_influence_and_mix_mode_are_semantic(self):
+        class Block(SimpleNamespace):
+            def items(self):
+                return {}.items()
+        curve = SimpleNamespace(data_path='location', array_index=0, extrapolation='CONSTANT',
+                                keyframe_points=[], modifiers=[], bl_rna=SimpleNamespace(properties=[]))
+        layer = SimpleNamespace(name='Layer', influence=1., mix_mode='REPLACE',
+            strips=[SimpleNamespace(channelbag=lambda slot: SimpleNamespace(fcurves=[curve]))])
+        action = SimpleNamespace(name='Experimental layered', layers=[layer],
+                                 slots=[SimpleNamespace(target_id_type='OBJECT')])
+        matrix = [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.], [0., 0., 0., 1.]]
+        obj = Block(type='EMPTY', name_full='LayerSource', data=Block(), parent=None,
+                    parent_type='OBJECT', parent_bone='', matrix_world=matrix, matrix_parent_inverse=matrix,
+                    modifiers=[], constraints=[], animation_data=SimpleNamespace(action=action, drivers=[]))
+        with patch.object(fingerprints, 'evaluate_sources'):
+            before = fingerprints.fingerprint(obj)
+            layer.name = 'Creator renamed layer'
+            self.assertEqual(fingerprints.fingerprint(obj), before)
+            for field, value in [('influence', .25), ('mix_mode', 'ADD')]:
+                previous = getattr(layer, field)
+                setattr(layer, field, value)
+                self.assertNotEqual(fingerprints.fingerprint(obj), before, field)
+                setattr(layer, field, previous)
 
     def test_layered_action_curves_preserve_all_channelbags(self):
         first, second = object(), object()

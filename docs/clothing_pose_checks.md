@@ -254,9 +254,11 @@ Owned review integrity v2 seals those per-clone bindings and requires a one-to-o
 table; swapped or aliased metadata rejects before preview writes.
 
 Action display names are excluded from fingerprints, including inactive native
-Action copies retained by capture. Action curves, per-slot channels, selected
-slot, assignment settings and frame settings remain semantic inputs. Their
-payload is versioned `BASIC-CLOTHING-ACTION-1`; prior Action-bearing captures need
+Action copies retained by capture. Action curves, per-curve group mute, per-slot
+channels, selected slot, assignment settings and frame settings remain semantic
+inputs. Available layer influence and mixing fields are included; Blender 5.1
+does not expose those layer controls. Group/layer names and display state remain
+excluded. Their payload is versioned `BASIC-CLOTHING-ACTION-2`; prior Action-bearing captures need
 an independent recapture and prior reports need another run. No-Action hashes and
 the source fingerprint format v2 remain unchanged. Copied Actions remain native
 editable evidence; validation continues using their captured numeric snapshot.

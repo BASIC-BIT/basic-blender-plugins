@@ -119,21 +119,23 @@ def action_curves(action):
 
 def _curve_state(curve):
     return [curve.data_path, curve.array_index, curve.extrapolation, _curve_settings(curve),
+            bool(getattr(getattr(curve, 'group', None), 'mute', False)),
             [[list(k.co), list(k.handle_left), list(k.handle_right), k.interpolation]
              for k in curve.keyframe_points]]
 
 
 def _action_state(action):
-    """Semantic Action payload v1, independent of creator labels and native handles."""
+    """Semantic Action payload v2, independent of creator labels and native handles."""
     slots = list(getattr(action, 'slots', ()))
     layers = getattr(action, 'layers', ())
-    return {'format': 'BASIC-CLOTHING-ACTION-1',
+    return {'format': 'BASIC-CLOTHING-ACTION-2',
             'settings': [getattr(action, name, None) for name in
                          ('use_frame_range', 'frame_start', 'frame_end', 'use_cyclic')],
             'slot_types': [slot.target_id_type for slot in slots],
-            'layers': [[[[_curve_state(curve) for curve in bag.fcurves] if
+            'layers': [{'settings': [getattr(layer, name, None) for name in ('influence', 'mix_mode')],
+                        'strips': [[[_curve_state(curve) for curve in bag.fcurves] if
                          (bag := strip.channelbag(slot)) else [] for slot in slots]
-                        for strip in layer.strips] for layer in layers],
+                        for strip in layer.strips]} for layer in layers],
             'legacy_curves': [] if layers else [_curve_state(curve) for curve in action_curves(action)]}
 
 

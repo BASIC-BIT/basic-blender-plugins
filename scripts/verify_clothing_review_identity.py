@@ -56,6 +56,54 @@ def action_identity():
     print('ACTION_DISPLAY_IDENTITY_OK active=1 retained=1 curves_stale=1 slots_stale=1')
 
 
+def action_group_settings():
+    body,rig,pairs,mapping,settings=fixture.fixture.setup('ActionGroupSettings')
+    body.keyframe_insert(data_path='location',frame=1,group='Authored group')
+    action=body.animation_data.action;group=fingerprints.action_curves(action)[0].group
+    before=fingerprints.fingerprint_inputs([body]);group.name='Renamed group';group.select=False
+    assert fingerprints.fingerprint_inputs([body])==before,'group display labels changed source hash'
+    group.mute=True
+    assert fingerprints.fingerprint_inputs([body])!=before,'Action group mute omitted from source hash'
+    group.mute=False
+    print('ACTION_GROUP_SETTINGS_OK active_mute=1 display_rename=1')
+
+
+def retained_action_group_settings():
+    body,rig,pairs,mapping,settings=fixture.fixture.setup('RetainedActionGroupSettings')
+    body.keyframe_insert(data_path='location',frame=1,group='Retained group')
+    record=fixture.fixture.baseline.capture_baseline(bpy.context,body,rig,[pairs[0]['candidate']])
+    reference=bpy.data.objects[record['pairs'][0]['reference']]
+    pairs[0]['reference']=reference;scene=bpy.data.scenes[record['scene']]
+    frozen=bpy.data.objects[record['body']]
+    retained=frozen['basic_clothing_action'];group=fingerprints.action_curves(retained)[0].group
+    before=fingerprints.fingerprint_inputs(list(scene.objects));group.name='Renamed frozen group'
+    assert fingerprints.fingerprint_inputs(list(scene.objects))==before
+    worker=session.ValidationSession(bpy.context,body,rig,pairs,mapping,settings);worker.cancel()
+    scene['fixture_action_group_sources']={'body':body,'rig':rig,'reference':reference,
+                                          'candidate':pairs[0]['candidate'],'frozen':frozen}
+    with tempfile.TemporaryDirectory() as temp:
+        path=Path(temp)/'retained-group.blend';bpy.ops.wm.save_as_mainfile(filepath=str(path))
+        command=[bpy.app.binary_path,'--background','--factory-startup',str(path),'--python-exit-code','9',
+                 '--python',str(Path(__file__)),'--','--reopen-action-group',scene.name]
+        if '--installed-extension' in sys.argv:command.append('--installed-extension')
+        result=subprocess.run(command,capture_output=True,text=True)
+        assert result.returncode==0 and 'RETAINED_ACTION_GROUP_REOPEN_OK' in result.stdout,result.stdout+result.stderr
+    _reject_retained_group_edit(scene,body,rig,pairs,mapping,settings,group)
+    print('RETAINED_ACTION_GROUP_SETTINGS_OK inactive_mute=1 display_rename=1 fresh_reopen=1 prewrite=1')
+
+
+def _reject_retained_group_edit(scene,body,rig,pairs,mapping,settings,group):
+    working=[body,rig,pairs[0]['candidate']]
+    before=fingerprints.fingerprint_inputs(working);accepted=scene['_basic_clothing_baseline_state']
+    group.mute=True
+    altered=fingerprints.fingerprint_inputs(list(scene.objects));allocations=fixture.allocations()
+    fixture.fixture.fixture.reject(lambda:session.ValidationSession(bpy.context,body,rig,pairs,mapping,settings),
+                                   'modified retained baseline')
+    assert fixture.allocations()==allocations and scene['_basic_clothing_baseline_state']==accepted
+    assert fingerprints.fingerprint_inputs(working)==before
+    assert fingerprints.fingerprint_inputs(list(scene.objects))==altered
+
+
 def source_scale():
     previous=bpy.context.scene;bpy.context.window.scene=bpy.data.scenes.new('Captured source scale fixture')
     report,sources,before=fixture.make_report()
@@ -207,7 +255,16 @@ def subset_dependencies():
 
 
 if __name__=='__main__':
-    if '--reopen-review' in sys.argv:
+    if '--reopen-action-group' in sys.argv:
+        scene=bpy.data.scenes[sys.argv[sys.argv.index('--reopen-action-group')+1]]
+        saved=scene['fixture_action_group_sources'];body,rig=saved['body'],saved['rig']
+        pairs=[dict(reference=saved['reference'],candidate=saved['candidate'],confirmed=True)]
+        mapping=fixture.fixture.fixture.ik_fixture.confirmed(rig)
+        worker=session.ValidationSession(bpy.context,body,rig,pairs,mapping,{});worker.cancel()
+        group=fingerprints.action_curves(saved['frozen']['basic_clothing_action'])[0].group
+        _reject_retained_group_edit(scene,body,rig,pairs,mapping,{},group)
+        print('RETAINED_ACTION_GROUP_REOPEN_OK')
+    elif '--reopen-review' in sys.argv:
         scene=bpy.data.scenes[sys.argv[sys.argv.index('--reopen-review')+1]]
         report=reporting.parse_report(scene['fixture_identity_report'].as_string())
         preview.preview_failure(bpy.context,report);preview.clear_preview(bpy.context)
@@ -228,6 +285,8 @@ if __name__=='__main__':
         worker=session.ValidationSession(bpy.context,saved['body'],saved['rig'],[dict(reference=saved['reference'],candidate=saved['candidate'],confirmed=True)],mapping,{})
         worker.cancel();print('SUBSET_REOPEN_OK')
     else:
-        cases={'action':action_identity,'scale':source_scale,'rename':review_rename,'subset':subset_dependencies}
+        cases={'action':action_identity,'action_groups':action_group_settings,
+               'retained_groups':retained_action_group_settings,
+               'scale':source_scale,'rename':review_rename,'subset':subset_dependencies}
         for name in ([sys.argv[sys.argv.index('--case')+1]] if '--case' in sys.argv else cases):cases[name]()
         print('CLOTHING_REVIEW_IDENTITY_OK')
