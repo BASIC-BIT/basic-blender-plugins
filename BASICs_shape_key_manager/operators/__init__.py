@@ -18,6 +18,8 @@ from .vertex_group_ops import (
     VERTEXGROUP_OT_remove_empty,
     VERTEXGROUP_OT_robust_weight_transfer
 )
+from .weights.refit import VERTEXGROUP_OT_refit_clothing_weights
+from .clothing_checks.operators import classes as clothing_classes, cleanup_jobs
 from .mesh_mirror_ops import MESH_OT_force_mirror
 from .mesh_select_ops import MESH_OT_select_nearby_vertices
 from .polyloop_ops import (
@@ -47,6 +49,7 @@ classes = (
     VERTEXGROUP_OT_combine_groups,
     VERTEXGROUP_OT_remove_empty,
     VERTEXGROUP_OT_robust_weight_transfer,
+    VERTEXGROUP_OT_refit_clothing_weights,
     MESH_OT_force_mirror,
     MESH_OT_select_nearby_vertices,
     MESH_OT_preview_polyloop_reduction,
@@ -59,11 +62,16 @@ classes = (
 )
 
 def register():
-    for cls in classes:
+    for cls in (*classes, *clothing_classes):
         bpy.utils.register_class(cls)
+    if cleanup_jobs not in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.append(cleanup_jobs)
 
 def unregister():
-    for cls in reversed(classes):
+    cleanup_jobs()
+    if cleanup_jobs in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.remove(cleanup_jobs)
+    for cls in reversed((*classes, *clothing_classes)):
         bpy.utils.unregister_class(cls)
 
 if __name__ == "__main__":

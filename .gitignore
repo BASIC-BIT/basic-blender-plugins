@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+/BASICs_shape_key_manager.zip
+/.coverage
+/coverage.xml
+/htmlcov/

@@ -58,8 +58,14 @@ def create_zip(source_dir, output_file):
     
     with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
         # Walk through the directory
-        for root, _, files in os.walk(source_dir):
+        for root, directories, files in os.walk(source_dir):
+            directories[:] = [
+                directory for directory in directories
+                if directory != "__pycache__"
+            ]
             for file in files:
+                if file.endswith((".pyc", ".pyo")):
+                    continue
                 # Calculate path for file in zip
                 file_path = os.path.join(root, file)
                 
@@ -123,7 +129,12 @@ def main():
     parser.add_argument('--install', action='store_true', help='Install the addon to Blender')
     parser.add_argument('--blender-version', type=str, help='Blender version (e.g., 4.3)')
     parser.add_argument('--blender-exe', type=str, help='Path to Blender executable (optional, for auto-enabling)')
-    parser.add_argument('--skip-encoding-fix', action='store_true', help='Skip the encoding fix step')
+    parser.add_argument(
+        '--fix-encodings', action='store_true',
+        help='Normalize source encodings before packaging (mutates source files)')
+    parser.add_argument(
+        '--skip-encoding-fix', action='store_true',
+        help='Deprecated compatibility flag; packaging is read-only by default')
     
     args = parser.parse_args()
     
@@ -141,8 +152,9 @@ def main():
         print(f"Error: Source directory not found: {source_dir}")
         return 1
     
-    # Run encoding fix unless skipped
-    if not args.skip_encoding_fix:
+    # Encoding repair is an explicit maintenance operation. Packaging should
+    # not silently mutate the source tree.
+    if args.fix_encodings and not args.skip_encoding_fix:
         if not run_encoding_fix():
             print("Encoding fix failed. Use --skip-encoding-fix to skip this step.")
             return 1
@@ -165,4 +177,4 @@ def main():
     return 0
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    sys.exit(main())

@@ -1,0 +1,63 @@
+name: Blender Integration
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  BLENDER_VERSION: 5.1.2
+  BLENDER_ARCHIVE: blender-5.1.2-linux-x64.tar.xz
+  BLENDER_URL_ROOT: https://download.blender.org/release/Blender5.1
+
+jobs:
+  blender:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache Blender archive
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/basic-blender/${{ env.BLENDER_ARCHIVE }}
+          key: blender-${{ env.BLENDER_VERSION }}-linux-x64
+
+      - name: Download and verify Blender
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$HOME/.cache/basic-blender"
+          archive="$cache/$BLENDER_ARCHIVE"
+          mkdir -p "$cache"
+          if [[ ! -f "$archive" ]]; then
+            curl --fail --location --retry 3 \
+              --output "$archive.tmp" \
+              "$BLENDER_URL_ROOT/$BLENDER_ARCHIVE"
+            mv "$archive.tmp" "$archive"
+          fi
+          curl --fail --location --retry 3 \
+            --output "$cache/blender-$BLENDER_VERSION.sha256" \
+            "$BLENDER_URL_ROOT/blender-$BLENDER_VERSION.sha256"
+          grep " $BLENDER_ARCHIVE$" \
+            "$cache/blender-$BLENDER_VERSION.sha256" \
+            | (cd "$cache" && sha256sum --check -)
+
+      - name: Extract Blender
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/basic-blender"
+          tar -xf "$HOME/.cache/basic-blender/$BLENDER_ARCHIVE" \
+            -C "$RUNNER_TEMP/basic-blender"
+          echo "BLENDER_EXE=$RUNNER_TEMP/basic-blender/blender-$BLENDER_VERSION-linux-x64/blender" \
+            >> "$GITHUB_ENV"
+
+      - name: Run Blender integration checks
+        run: >-
+          python scripts/run_blender_checks.py
+          --blender "${{ env.BLENDER_EXE }}"
+          --expected-version "${{ env.BLENDER_VERSION }}"
